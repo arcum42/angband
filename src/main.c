@@ -42,6 +42,12 @@ static const struct module modules[] =
 #ifdef USE_GTK
 	{ "gtk", help_gtk, init_gtk },
 #endif /* USE_GTK */
+	
+#ifdef USE_GTK_NEW
+	{ "gtk-new", help_gtk, init_gtk },
+#endif /* USE_GTK */
+
+
 
 #ifdef USE_X11
 	{ "x11", help_x11, init_x11 },

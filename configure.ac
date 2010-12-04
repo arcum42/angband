@@ -159,6 +159,10 @@ AC_ARG_ENABLE(gtk,
 	[AS_HELP_STRING([--enable-gtk],       [Enables GTK 2.x frontend (default: disabled)])],
 	[enable_gtk=$enableval],
 	[enable_gtk=no])
+AC_ARG_ENABLE(gtk-new,
+	[AS_HELP_STRING([--enable-gtk-new],       [Enables GTK 2.x frontend (default: disabled)])],
+	[enable_gtk_new=$enableval],
+	[enable_gtk_new=no])
 AC_ARG_ENABLE(curses,
 	[AS_HELP_STRING([--enable-curses],    [Enables Curses frontend (default: enabled)])],
 	[enable_curses=$enableval],
@@ -188,7 +192,11 @@ if test "x$enable_gtk" = "xyes"; then
 		AC_MSG_ERROR([The "setgid" option and the GTK port are incompatible.])
 	fi
 fi
-
+if test "x$enable_gtk_new" = "xyes"; then
+	if test "x$wsetgid" = "xyes"; then
+		AC_MSG_ERROR([The "setgid" option and the GTK port are incompatible.])
+	fi
+fi
 
 dnl curses checking
 if test "$enable_curses" = "yes"; then
@@ -253,7 +261,6 @@ if test "$enable_sdl" = "yes"; then
 	fi
 fi
 
-
 dnl GTK checking
 if test "$enable_gtk" = "yes"; then
 	PKG_CHECK_MODULES(GTK, [glib-2.0 >= 2.6.0 gtk+-2.0 >= 2.6.0 gthread-2.0 pango libglade-2.0],
@@ -277,6 +284,28 @@ if test "$enable_gtk" = "yes"; then
 	fi
 fi
 
+dnl new GTK checking
+if test "$enable_gtk_new" = "yes"; then
+	PKG_CHECK_MODULES(GTK, [glib-2.0 >= 2.6.0 gtk+-2.0 >= 2.6.0 gthread-2.0 pango libglade-2.0],
+		[with_gtk_new=yes],
+		[with_gtk_new=no]
+	)
+	PKG_CHECK_MODULES(GLIB, [glib-2.0 >= 2.6.0],
+		[with_gtkx_new=yes],
+		[with_gtk_new=no]
+	)
+
+	if test "x$SETEGID" != "x"; then
+		enable_gtk_new=no
+		with_gtk_new=no
+	fi
+
+	if test "$with_gtk_new" = "yes"; then
+		AC_DEFINE(USE_GTK_NEW, 1, [Define to 1 if using the new GTK+ 2.x interface and GTK+ 2.x is found.])
+		CFLAGS="${CFLAGS} $GTK_CFLAGS"
+		LDFLAGS="${LDFLAGS} $GTK_LIBS -rdynamic -export-dynamic"
+	fi
+fi
 
 dnl SDL mixer checking
 if test "$enable_sdl_mixer" = "yes"; then
@@ -345,6 +374,17 @@ if test "$enable_gtk" = "yes"; then
 else
 	echo "- GTK 2.x                                 Disabled"
 fi
+
+if test "$enable_gtk_new" = "yes"; then
+	if test "$with_gtk_new" = "no"; then
+		echo "- GTK 2.x new                                 No; missing libraries"
+	else
+		echo "- GTK 2.x new                                 Yes"
+	fi
+else
+	echo "- GTK 2.x new                                 Disabled"
+fi
+
 if test "$enable_x11" = "yes"; then
 	if test "$with_x11" = "no"; then
 		echo "- X11                                     No; missing libraries"

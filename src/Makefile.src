@@ -19,6 +19,7 @@ HEADERS = \
 	game-cmd.h \
 	game-event.h \
 	$(GTKHEADERS) \
+	$(GTKNEWHEADERS) \
 	h-basic.h \
 	init.h \
 	main.h \
@@ -43,16 +44,22 @@ HEADERS = \
 
 GTKHEADERS = \
 	gtk/cairo-utils.h \
-	gtk/main-gtk.h \
+	gtk/main-gtk.h 
+	
+GTKNEWHEADERS = \
+	gtk-new/main-gtk.h
 	
 ZFILES = z-bitflag.o z-file.o z-form.o z-msg.o z-quark.o z-rand.o z-term.o z-type.o \
          z-util.o z-virt.o z-textblock.o
-MAINFILES = main.o main-crb.o main-gcu.o $(GTKMAINFILES) \
+MAINFILES = main.o main-crb.o main-gcu.o $(GTKMAINFILES) $(GTKNEWMAINFILES) \
             main-ros.o main-sdl.o main-win.o main-x11.o snd-sdl.o main-test.o
 
 GTKMAINFILES = \
 	gtk/main-gtk.o \
 	gtk/cairo-utils.o 
+	
+GTKNEWMAINFILES = \
+	gtk-new/main-gtk.o
 	
 ANGFILES = \
 	attack.o \
