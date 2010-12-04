@@ -1,8 +1,8 @@
 /*
- * File: main-xxx.c
- * Purpose: Outline how to make a new "main-xxx" file.
+ * File: main-gtk.c
+ * Purpose: GTK port for Angband
  *
- * Copyright (c) 1997 Ben Harrison
+ * Copyright (c) 2000-2010 Robert Ruehlmann, Shanoah Alkire
  *
  * This work is free software; you can redistribute it and/or modify it
  * under the terms of either:
@@ -28,6 +28,8 @@
 #include "game-event.h"
 #include "macro.h"
 #include "files.h"
+
+static bool game_in_progress = false;
 
 /*
  * Help message.
@@ -158,6 +160,7 @@ char* open_dialog_box()
 {
 	char *filename;
 	GtkWidget *dialog;
+	char buf[1024];
 	
 	dialog = gtk_file_chooser_dialog_new ("Open File",
 					     NULL,
@@ -165,6 +168,12 @@ char* open_dialog_box()
 					      GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
 					      GTK_STOCK_OPEN, GTK_RESPONSE_ACCEPT,
 					      NULL);
+	
+	/* Get the current directory (so we can find lib/save/) */
+	filename = gtk_file_chooser_get_current_folder(GTK_FILE_CHOOSER(dialog));
+	path_build(buf, sizeof buf, filename, ANGBAND_DIR_SAVE);
+	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), buf);
+	
 	if (gtk_dialog_run (GTK_DIALOG (dialog)) == GTK_RESPONSE_ACCEPT)
 	  {
 		filename = gtk_file_chooser_get_filename (GTK_FILE_CHOOSER (dialog));
@@ -181,6 +190,7 @@ char* save_dialog_box()
 {
 	char *filename;
 	GtkWidget *dialog;
+	char buf[1024];
 	
 	dialog = gtk_file_chooser_dialog_new ("Save File",
 					      NULL,
@@ -189,6 +199,11 @@ char* save_dialog_box()
 					      GTK_STOCK_SAVE, GTK_RESPONSE_ACCEPT,
 					      NULL);
 	gtk_file_chooser_set_do_overwrite_confirmation (GTK_FILE_CHOOSER (dialog), TRUE);
+	
+	/* Get the current directory (so we can find lib/save/) */
+	filename = gtk_file_chooser_get_current_folder(GTK_FILE_CHOOSER(dialog));
+	path_build(buf, sizeof buf, filename, ANGBAND_DIR_SAVE);
+	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), buf);
 	gtk_file_chooser_set_filename (GTK_FILE_CHOOSER (dialog), op_ptr->full_name);
 	
 	if (gtk_dialog_run (GTK_DIALOG (dialog)) == GTK_RESPONSE_ACCEPT)
@@ -212,6 +227,7 @@ gboolean close_window(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 gboolean new_gtk_game(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
 	cmd_insert(CMD_NEWGAME);
+	game_in_progress = true;
 	return false;
 }
 
@@ -223,16 +239,27 @@ gboolean open_gtk_game(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 	{
 		my_strcpy(savefile, str, sizeof(savefile));
 		cmd_insert(CMD_LOADFILE);
+		game_in_progress = true;
 	}
 	return true;
 }
 
 gboolean save_gtk_game(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
-	char* str;
-	//str = save_dialog_box();
-	//my_strcpy(savefile, str, sizeof(savefile));
-	save_game();
+	if (game_in_progress && character_generated)
+	{
+		if (!inkey_flag)
+		{
+			//glog( "You may not do that right now.");
+			return false;
+		}
+
+		/* Hack -- Forget messages */
+		msg_flag = false;
+		
+		/* Save the game */
+		save_game();
+	}
 	return true;
 }
 

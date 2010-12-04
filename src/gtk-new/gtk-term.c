@@ -1,8 +1,8 @@
 /*
- * File: main-xxx.c
- * Purpose: Outline how to make a new "main-xxx" file.
+ * File: gtk-term.c
+ * Purpose: Contains the term code for the Gtk port.
  *
- * Copyright (c) 1997 Ben Harrison
+ * Copyright (c) 2010 Shanoah Alkire (with occasional code from Ben Harrison.)
  *
  * This work is free software; you can redistribute it and/or modify it
  * under the terms of either:

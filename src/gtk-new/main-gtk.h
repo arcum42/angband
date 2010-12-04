@@ -2,7 +2,7 @@
  * File: main-gtk.h
  * Purpose: Header file for the GTK port for Angband
  *
- * Copyright (c) 2000-2007 Robert Ruehlmann, Shanoah Alkire
+ * Copyright (c) 2000-2010 Shanoah Alkire
  *
  * This work is free software; you can redistribute it and/or modify it
  * under the terms of either:

@@ -11,4 +11,5 @@ Then can come more advanced features, like buttons, extra windows (which may or 
 
 Currently I'm sticking with C, but if C++ looks cleaner, I might use it. If that happens, I'll be sure to limit to files in the port, though, unless the main program starts going to C++.
 
+To test the copy of the gtk port I'm recoding, use --enable-gtk-new when configuring angband.
 --Shanoah Alkire
