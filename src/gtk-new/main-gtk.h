@@ -24,12 +24,6 @@
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
 
-/*
- * Help message.
- *   1st line = max 68 chars.
- *   Start next lines with 11 spaces
- */
-const char help_gtk[] = "Describe XXX, subopts -describe suboptions here";
-extern errr init_gtk(int argc, char **argv);
+extern gboolean quit_gtk(GtkWidget *widget, GdkEvent *event, gpointer user_data);
 
 #endif
