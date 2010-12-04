@@ -23,6 +23,7 @@
 #include "main.h"
 #include "gtk-term.h"
 #include "gtk-drawing.h"
+#include <pango/pangocairo.h>
 
 
 /*
@@ -57,10 +58,13 @@ static void Term_init_gtk(term *t)
 	
 	term_data *td = (term_data*)(t->data);
 	
+	create_font(td);
+	create_surface(td);
+	
 	widget = gtk_window_new(GTK_WINDOW_TOPLEVEL);
 	td->window = GTK_WINDOW(widget);
 	
-	if (td->id == 1)
+	if (td->id == 0)
 	{
 		gtk_window_set_title(td->window, "Angband");
 		g_signal_connect(td->window, "delete-event", G_CALLBACK (quit_gtk), NULL);
@@ -74,7 +78,6 @@ static void Term_init_gtk(term *t)
 		g_signal_connect(td->window, "delete-event", G_CALLBACK (close_window), NULL);
 		g_signal_connect(td->window, "destroy",  G_CALLBACK (close_window), NULL);
 	}
-	
 	create_drawing_area(td);
 	
 	gtk_widget_show(GTK_WIDGET(td->window));
@@ -99,28 +102,22 @@ static void Term_nuke_gtk(term *t)
 }
 
 
-
-/*
- * Do a "user action" on the current "term"
- *
- * This function allows the visual module to do implementation defined
- * things when the user activates the "system defined command" command.
- *
- * This function is normally not used.
- *
- * In general, this function should return zero if the action is successfully
- * handled, and non-zero if the action is unknown or incorrectly handled.
- */
-static errr Term_user_gtk(int n)
+static  errr Term_fresh_gtk()
 {
-	term_data *td = (term_data*)(Term->data);
-
-	/* XXX XXX XXX */
-
-	/* Unknown */
-	return (1);
+	return 0;
 }
 
+static  errr Term_flush_gtk()
+{
+	return 0;
+}
+
+static  errr Term_clear_gtk()
+{
+	term_data *td = (term_data*)(Term->data);
+	clear_surface(td);
+	return 0;
+}
 
 /*
  * Do a "special thing" to the current "term"
@@ -140,210 +137,49 @@ static errr Term_user_gtk(int n)
 static errr Term_xtra_gtk(int n, int v)
 {
 	term_data *td = (term_data*)(Term->data);
-
-	/* Analyze */
+	
+	/* Handle a subset of the legal requests */
 	switch (n)
 	{
-		case TERM_XTRA_EVENT:
-		{
-			/*
-			 * Process some pending events XXX XXX XXX
-			 *
-			 * Wait for at least one event if "v" is non-zero
-			 * otherwise, if no events are ready, return at once.
-			 * When "keypress" events are encountered, the "ascii"
-			 * value corresponding to the key should be sent to the
-			 * "Term_keypress()" function.  Certain "bizarre" keys,
-			 * such as function keys or arrow keys, may send special
-			 * sequences of characters, such as control-underscore,
-			 * plus letters corresponding to modifier keys, plus an
-			 * underscore, plus carriage return, which can be used by
-			 * the main program for "macro" triggers.  This action
-			 * should handle as many events as is efficiently possible
-			 * but is only required to handle a single event, and then
-			 * only if one is ready or "v" is true.
-			 *
-			 * This action is required.
-			 */
-
+		/* Make a noise */
+		case TERM_XTRA_NOISE: 
 			return (0);
-		}
 
-		case TERM_XTRA_FLUSH:
-		{
-			/*
-			 * Flush all pending events XXX XXX XXX
-			 *
-			 * This action should handle all events waiting on the
-			 * queue, optionally discarding all "keypress" events,
-			 * since they will be discarded anyway in "z-term.c".
-			 *
-			 * This action is required, but may not be "essential".
-			 */
+		/* Flush the output */
+		case TERM_XTRA_FRESH: 
+			return (Term_fresh_gtk());
 
+		/* Process random events */
+		case TERM_XTRA_BORED: 
+			return (CheckEvent(0));
+
+		/* Process Events */
+		case TERM_XTRA_EVENT: 
+			return (CheckEvent(v));
+
+		/* Flush the events */
+		case TERM_XTRA_FLUSH: 
+			return (Term_flush_gtk());
+
+		/* Handle change in the "level" */
+		case TERM_XTRA_LEVEL: 
 			return (0);
-		}
 
-		case TERM_XTRA_CLEAR:
-		{
-			/*
-			 * Clear the entire window XXX XXX XXX
-			 *
-			 * This action should clear the entire window, and redraw
-			 * any "borders" or other "graphic" aspects of the window.
-			 *
-			 * This action is required.
-			 */
+		/* Clear the screen */
+		case TERM_XTRA_CLEAR: 
+			return (Term_clear_gtk());
 
-			return (0);
-		}
-
-		case TERM_XTRA_SHAPE:
-		{
-			/*
-			 * Set the cursor visibility XXX XXX XXX
-			 *
-			 * This action should change the visibility of the cursor,
-			 * if possible, to the requested value (0=off, 1=on)
-			 *
-			 * This action is optional, but can improve both the
-			 * efficiency (and attractiveness) of the program.
-			 */
-
-			return (0);
-		}
-
-		case TERM_XTRA_FROSH:
-		{
-			/*
-			 * Flush a row of output XXX XXX XXX
-			 *
-			 * This action should make sure that row "v" of the "output"
-			 * to the window will actually appear on the window.
-			 *
-			 * This action is optional, assuming that "Term_text_xxx()"
-			 * (and similar functions) draw directly to the screen, or
-			 * that the "TERM_XTRA_FRESH" entry below takes care of any
-			 * necessary flushing issues.
-			 */
-
-			return (0);
-		}
-
-		case TERM_XTRA_FRESH:
-		{
-			/*
-			 * Flush output XXX XXX XXX
-			 *
-			 * This action should make sure that all "output" to the
-			 * window will actually appear on the window.
-			 *
-			 * This action is optional, assuming that "Term_text_xxx()"
-			 * (and similar functions) draw directly to the screen, or
-			 * that the "TERM_XTRA_FROSH" entry above takes care of any
-			 * necessary flushing issues.
-			 */
-
-			return (0);
-		}
-
-		case TERM_XTRA_NOISE:
-		{
-			/*
-			 * Make a noise XXX XXX XXX
-			 *
-			 * This action should produce a "beep" noise.
-			 *
-			 * This action is optional, but convenient.
-			 */
-
-			return (0);
-		}
-
-		case TERM_XTRA_BORED:
-		{
-			/*
-			 * Handle random events when bored XXX XXX XXX
-			 *
-			 * This action is optional, and normally not important
-			 */
-
-			return (0);
-		}
-
-		case TERM_XTRA_REACT:
-		{
-			/*
-			 * React to global changes XXX XXX XXX
-			 *
-			 * For example, this action can be used to react to
-			 * changes in the global "angband_color_table[MAX_COLORS][4]" array.
-			 *
-			 * This action is optional, but can be very useful for
-			 * handling "color changes" and the "arg_sound" and/or
-			 * "arg_graphics" options.
-			 */
-
-			return (0);
-		}
-
-		case TERM_XTRA_ALIVE:
-		{
-			/*
-			 * Change the "hard" level XXX XXX XXX
-			 *
-			 * This action is used if the program changes "aliveness"
-			 * by being either "suspended" (v=0) or "resumed" (v=1)
-			 * This action is optional, unless the computer uses the
-			 * same "physical screen" for multiple programs, in which
-			 * case this action should clean up to let other programs
-			 * use the screen, or resume from such a cleaned up state.
-			 *
-			 * This action is currently only used by "main-gcu.c",
-			 * on UNIX machines, to allow proper "suspending".
-			 */
-
-			return (0);
-		}
-
-		case TERM_XTRA_LEVEL:
-		{
-			/*
-			 * Change the "soft" level XXX XXX XXX
-			 *
-			 * This action is used when the term window changes "activation"
-			 * either by becoming "inactive" (v=0) or "active" (v=1)
-			 *
-			 * This action can be used to do things like activate the proper
-			 * font / drawing mode for the newly active term window.  This
-			 * action should NOT change which window has the "focus", which
-			 * window is "raised", or anything like that.
-			 *
-			 * This action is optional if all the other things which depend
-			 * on what term is active handle activation themself, or if only
-			 * one "term_data" structure is supported by this file.
-			 */
-
-			return (0);
-		}
-
+		/* Delay for some milliseconds */
 		case TERM_XTRA_DELAY:
-		{
-			/*
-			 * Delay for some milliseconds XXX XXX XXX
-			 *
-			 * This action is useful for proper "timing" of certain
-			 * visual effects, such as breath attacks.
-			 *
-			 * This action is optional, but may be required by this file,
-			 * especially if special "macro sequences" must be supported.
-			 */
-
+			if (v > 0) usleep(1000 * v);
 			return (0);
-		}
+
+		/* React to changes */
+		case TERM_XTRA_REACT: 
+			return (0);
 	}
 
-	/* Unknown or Unhandled action */
+	/* Unknown */
 	return (1);
 }
 
@@ -386,20 +222,11 @@ static errr Term_wipe_gtk(int x, int y, int n)
 {
 	term_data *td = (term_data*)(Term->data);
 
+	clear_chars(td, x, y, n);
 	/* XXX XXX XXX */
 
 	/* Success */
 	return (0);
-}
-
-/*
- * Given a position in the ISO Latin-1 character set, return
- * the correct character on this system.
- */
- static byte Term_xchar_gtk(byte c)
-{
- 	/* The xxx port uses the Latin-1 standard */
- 	return (c);
 }
 
 
@@ -438,8 +265,7 @@ static errr Term_wipe_gtk(int x, int y, int n)
 static errr Term_text_gtk(int x, int y, int n, byte a, const char *cp)
 {
 	term_data *td = (term_data*)(Term->data);
-
-	/* XXX XXX XXX */
+	write_chars(td, x, y, n, a, cp);
 
 	/* Success */
 	return (0);
@@ -484,7 +310,6 @@ static errr Term_pict_gtk(int x, int y, int n, const byte *ap, const char *cp,
 }
 
 
-
 /*** Internal Functions ***/
 
 
@@ -514,21 +339,24 @@ void term_data_link(int i)
 	/* Initialize the term */
 	term_init(t, 80, 24, 256);
 
+	/* Use a "soft" cursor */
+	t->soft_cursor = TRUE;
+	
 	/* Prepare the init/nuke hooks */
 	t->init_hook = Term_init_gtk;
 	t->nuke_hook = Term_nuke_gtk;
 
+	
 	/* Prepare the template hooks */
-	t->user_hook = Term_user_gtk;
 	t->xtra_hook = Term_xtra_gtk;
-	t->curs_hook = Term_curs_gtk;
-	t->wipe_hook = Term_wipe_gtk;
 	t->text_hook = Term_text_gtk;
+	t->wipe_hook = Term_wipe_gtk;
+	t->curs_hook = Term_curs_gtk;
 	t->pict_hook = Term_pict_gtk;
-	t->xchar_hook = Term_xchar_gtk;
 
 	/* Remember where we came from */
 	t->data = td;
+	my_strcpy(td->font, "Monospace 10", 13);
 
 	/* Activate it */
 	Term_activate(t);

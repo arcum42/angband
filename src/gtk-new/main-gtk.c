@@ -24,6 +24,7 @@
 #include "main.h"
 #include "gtk-term.h"
 #include "textui.h"
+#include "game-event.h"
 
 /*
  * Help message.
@@ -46,6 +47,16 @@ static void hook_quit(cptr str)
 	exit(0);
 }
 
+errr CheckEvent(bool wait)
+{
+	if (wait)
+		gtk_main_iteration();
+	else
+		while (gtk_events_pending())
+			gtk_main_iteration();
+
+	return (0);
+}
 
 static errr get_init_cmd()
 {
@@ -53,7 +64,7 @@ static errr get_init_cmd()
 
 	/* Prompt the user */
 	prt("[Choose 'New' or 'Open' from the 'File' menu]", 23, 17);
-	//CheckEvent(FALSE);
+	CheckEvent(TRUE);
 
 	return 0;
 }
@@ -70,6 +81,8 @@ static errr gtk_get_cmd(cmd_context context, bool wait)
 /*
  * Initialization function
  */
+
+
 void init_handlers()
 {
 	
@@ -87,6 +100,9 @@ errr init_gtk(int argc, char **argv)
 	int i, err;
 	char logo[1024];
 	
+	  g_thread_init(NULL);
+	  gdk_threads_init();
+	
 	/* Initialize the environment */
 	gtk_init(&argc, &argv);
 	
@@ -96,13 +112,31 @@ errr init_gtk(int argc, char **argv)
 	 init_handlers();
 
 	/* Create windows (backwards!) */
-	for (i = MAX_GTK_NEW_TERM; i > 0; i--)
+	for (i = MAX_GTK_NEW_TERM - 1; i >= 0; i--)
 	{
 		/* Link */
 		term_data_link(i);
 	}
 	
-	gtk_main();
+	Term_activate(&term_window[0].t);
+	
+	/* Set the system suffix */
+	ANGBAND_SYS = "gtk-new";
+	
+	/* Catch nasty signals, unless we want to see them */
+	#ifndef GTK_DEBUG
+	//signals_init();
+	#endif
+	
+	Term_fresh();
+	
+	/* Set up the display handlers and things. */
+	init_display();
+	
+	/* Let's play */
+	play_game();
+	/* Stop now */
+	exit(0);
 	
 	/* Success */
 	return (0);

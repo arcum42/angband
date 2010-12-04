@@ -25,7 +25,15 @@
 
 #include "gtk-term.h"
 
-extern void create_drawing_area(term_data* td);
+extern int window_width;
+extern int window_height;
 
+extern void create_drawing_area(term_data* td);
+extern void create_surface(term_data* td);
+extern void create_font();
+extern void write_char(term_data* td, char text, int x, int y, byte a);
+extern void write_chars(term_data* td, int x, int y, int n, byte a, const char* text);
+extern void clear_surface(term_data* td);
+extern void clear_chars(term_data* td, int x, int y, int n);
 #endif
 #endif

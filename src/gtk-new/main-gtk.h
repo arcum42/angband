@@ -27,6 +27,7 @@
 #include <gdk/gdkkeysyms.h>
 
 extern gboolean quit_gtk(GtkWidget *widget, GdkEvent *event, gpointer user_data);
+extern errr CheckEvent(bool wait);
 
 #endif
 #endif

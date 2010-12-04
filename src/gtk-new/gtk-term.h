@@ -23,6 +23,8 @@
 
 #define GTK_TERM_INCLUDE
 #include "main-gtk.h"
+#include "cairo.h"
+#include <pango/pangocairo.h>
 
 /*
  * Extra data to associate with each "window"
@@ -41,6 +43,10 @@ struct term_data
 	/* Other fields if needed XXX XXX XXX */
 	GtkWindow* window;
 	GtkDrawingArea* drawing;
+	cairo_surface_t* surface;
+	char font[20];
+	int font_w, font_h;
+	int window_w, window_h;
 	uint id;
 };
 
