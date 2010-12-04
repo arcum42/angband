@@ -35,5 +35,7 @@ extern void write_char(term_data* td, char text, int x, int y, byte a);
 extern void write_chars(term_data* td, int x, int y, int n, byte a, const char* text);
 extern void clear_surface(term_data* td);
 extern void clear_chars(term_data* td, int x, int y, int n);
+extern void term_redraw(term_data* td);
+extern void hilite_char(term_data* td, int x, int y, byte a);
 #endif
 #endif

@@ -28,6 +28,12 @@
 
 extern gboolean quit_gtk(GtkWidget *widget, GdkEvent *event, gpointer user_data);
 extern errr CheckEvent(bool wait);
+extern gboolean keypress_event_handler(GtkWidget *widget, GdkEventKey *event, gpointer user_data);
+extern gboolean close_window(GtkWidget *widget, GdkEvent *event, gpointer user_data);
+
+extern gboolean new_gtk_game(GtkWidget *widget, GdkEvent *event, gpointer user_data);
+extern gboolean open_gtk_game(GtkWidget *widget, GdkEvent *event, gpointer user_data);
+extern gboolean save_gtk_game(GtkWidget *widget, GdkEvent *event, gpointer user_data);
 
 #endif
 #endif
