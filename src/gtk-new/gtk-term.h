@@ -19,7 +19,9 @@
 #include "angband.h"
 
 #ifdef USE_GTK_NEW
+#ifndef GTK_TERM_INCLUDE
 
+#define GTK_TERM_INCLUDE
 #include "main-gtk.h"
 
 /*
@@ -37,7 +39,8 @@ struct term_data
 	term t;
 	
 	/* Other fields if needed XXX XXX XXX */
-	GtkWidget* window;
+	GtkWindow* window;
+	GtkDrawingArea* drawing;
 	uint id;
 };
 
@@ -63,4 +66,5 @@ term_data term_window[MAX_GTK_NEW_TERM];
 
 extern void term_data_link(int i);
 
+#endif
 #endif

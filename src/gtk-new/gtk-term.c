@@ -22,6 +22,7 @@
 
 #include "main.h"
 #include "gtk-term.h"
+#include "gtk-drawing.h"
 
 
 /*
@@ -41,6 +42,7 @@ gboolean close_window(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 	return true;
 }
 
+
 /*
  * Init a new "term"
  *
@@ -51,13 +53,16 @@ gboolean close_window(GtkWidget *widget, GdkEvent *event, gpointer user_data)
  */
 static void Term_init_gtk(term *t)
 {
+	GtkWidget* widget;
+	
 	term_data *td = (term_data*)(t->data);
-
-	td->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+	
+	widget = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+	td->window = GTK_WINDOW(widget);
 	
 	if (td->id == 1)
 	{
-		gtk_window_set_title(GTK_WINDOW(td->window), "Angband");
+		gtk_window_set_title(td->window, "Angband");
 		g_signal_connect(td->window, "delete-event", G_CALLBACK (quit_gtk), NULL);
 		g_signal_connect(td->window, "destroy",  G_CALLBACK (quit_gtk), NULL);
 	}
@@ -65,13 +70,15 @@ static void Term_init_gtk(term *t)
 	{
 		char title[10];
 		strnfmt(title, sizeof(title), "Term %d", td->id);
-		gtk_window_set_title(GTK_WINDOW(td->window), title);
+		gtk_window_set_title(td->window, title);
 		g_signal_connect(td->window, "delete-event", G_CALLBACK (close_window), NULL);
 		g_signal_connect(td->window, "destroy",  G_CALLBACK (close_window), NULL);
 	}
 	
-	gtk_widget_show(td->window);
-	/* XXX XXX XXX */
+	create_drawing_area(td);
+	
+	gtk_widget_show(GTK_WIDGET(td->window));
+	gtk_widget_show(GTK_WIDGET(td->drawing));
 }
 
 

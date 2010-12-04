@@ -15,18 +15,17 @@
  *    and not for profit purposes provided that this copyright and statement
  *    are included in all such copies.  Other copyrights may also apply.
  */
-
+ 
 #include "angband.h"
 
-#ifdef USE_GTK_NEW
+#ifdef USE_GTK_NEW 
 
-#ifndef MAIN_GTK_INCLUDE
-#define MAIN_GTK_INCLUDE
+#ifndef GTK_DRAWING_INCLUDE
+#define GTK_DRAWING_INCLUDE
 
-#include <gtk/gtk.h>
-#include <gdk/gdkkeysyms.h>
+#include "gtk-term.h"
 
-extern gboolean quit_gtk(GtkWidget *widget, GdkEvent *event, gpointer user_data);
+extern void create_drawing_area(term_data* td);
 
 #endif
 #endif

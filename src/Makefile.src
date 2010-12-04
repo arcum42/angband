@@ -48,7 +48,8 @@ GTKHEADERS = \
 	
 GTKNEWHEADERS = \
 	gtk-new/main-gtk.h \
-	gtk-new/gtk-new.h
+	gtk-new/gtk-term.h \
+	gtk-new/gtk-drawing.h
 	
 ZFILES = z-bitflag.o z-file.o z-form.o z-msg.o z-quark.o z-rand.o z-term.o z-type.o \
          z-util.o z-virt.o z-textblock.o
@@ -61,7 +62,8 @@ GTKMAINFILES = \
 	
 GTKNEWMAINFILES = \
 	gtk-new/main-gtk.o \
-	gtk-new/gtk-term.o
+	gtk-new/gtk-term.o \
+	gtk-new/gtk-drawing.o
 	
 ANGFILES = \
 	attack.o \
