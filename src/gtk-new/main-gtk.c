@@ -143,9 +143,9 @@ GtkWidget* create_graphics_menu()
 	gtk_menu_append(GTK_MENU(graf_menu), graf4_item);
 	g_signal_connect(GTK_OBJECT(graf4_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_DAVID_GERVAIS);
 	
-	/*graf5_item = gtk_menu_item_new_with_label("No Graphics");
+	/*graf5_item = gtk_menu_item_new_with_label("Nomad");
 	gtk_menu_append(GTK_MENU(graf_menu), graf1_item);
-	g_signal_connect(GTK_OBJECT(graf1_item), "activate", G_CALLBACK(init_graf), (gpointer)GRAPHICS_ORIGINAL);*/
+	g_signal_connect(GTK_OBJECT(graf1_item), "activate", G_CALLBACK(init_graf), (gpointer)GRAPHICS_NOMAD);*/
 	
 	gtk_menu_item_set_submenu( GTK_MENU_ITEM(graf_item), graf_menu);
 	return graf_item;
@@ -504,6 +504,20 @@ static errr gtk_get_cmd(cmd_context context, bool wait)
  * Initialization function
  */
 
+static void handle_map(game_event_type type, game_event_data *data, void *user)
+{
+	if (use_graphics != arg_graphics)
+	{
+		use_graphics = arg_graphics;
+		init_graf(arg_graphics);
+	}
+}
+
+
+static void handle_game(game_event_type type, game_event_data *data, void *user)
+{
+	init_graf(arg_graphics);
+}
 
 void init_handlers()
 {
@@ -515,6 +529,8 @@ void init_handlers()
 	cmd_get_hook = gtk_get_cmd;
 
 	// Use event_add_handler_set here to create events, and event_add_handler to add them. See game-event.h.
+	event_add_handler(EVENT_MAP, handle_map, NULL);
+	event_add_handler(EVENT_ENTER_GAME, handle_game, NULL);
 }
 
 errr init_gtk(int argc, char **argv)
@@ -543,7 +559,7 @@ errr init_gtk(int argc, char **argv)
 	Term_activate(&term_window[0].t);
 	
 	/* Set the system suffix */
-	ANGBAND_SYS = "gtk-new";
+	ANGBAND_SYS = "gtk";
 	
 	/* Catch nasty signals, unless we want to see them */
 	#ifndef GTK_DEBUG
@@ -554,7 +570,6 @@ errr init_gtk(int argc, char **argv)
 	
 	/* Set up the display handlers and things. */
 	init_display();
-	init_graf(arg_graphics);
 	
 	/* Let's play */
 	play_game();

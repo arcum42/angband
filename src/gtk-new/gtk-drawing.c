@@ -96,6 +96,15 @@ void init_graf(int g)
 			printf("Graphics: David Gervais\n");
 			break;
 		}
+		/*case GRAPHICS_NOMAD:	
+		{
+			ANGBAND_GRAF = "nomad";
+			path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_GRAF, "8x16.png");
+			use_transparency = TRUE;
+			tile_w = tile_h = 16;
+			break;
+			
+		}*/
 	}
 
 	/* Free up old graphics */

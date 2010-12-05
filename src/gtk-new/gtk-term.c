@@ -276,12 +276,10 @@ static errr Term_text_gtk(int x, int y, int n, byte a, const char *cp)
  * This function is only used if one of the "higher_pict" and/or
  * "always_pict" flags are set.
  */
-static errr Term_pict_gtk(int x, int y, int n, const byte *ap, const char *cp,
-                          const byte *tap, const char *tcp)
+static errr Term_pict_gtk(int x, int y, int n, const byte *ap, const char *cp, const byte *tap, const char *tcp)
 {
 	term_data *td = (term_data*)(Term->data);
 	draw_tiles(td, x, y, n, ap, cp, tap, tcp);
-	printf("Drawing tiles.\n");
 
 	/* Success */
 	return (0);
