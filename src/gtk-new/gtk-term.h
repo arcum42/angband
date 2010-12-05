@@ -19,9 +19,10 @@
 #include "angband.h"
 
 #ifdef USE_GTK_NEW
-#ifndef GTK_TERM_INCLUDE
 
+#ifndef GTK_TERM_INCLUDE
 #define GTK_TERM_INCLUDE
+
 #include "main-gtk.h"
 #include "cairo.h"
 #include <pango/pangocairo.h>
@@ -43,11 +44,13 @@ struct term_data
 	/* Other fields if needed XXX XXX XXX */
 	GtkWindow* window;
 	GtkDrawingArea* drawing;
+	GtkWidget* menu_item;
 	cairo_surface_t* surface;
 	char font[20];
 	int font_w, font_h;
 	int window_w, window_h;
 	uint id;
+	bool visible;
 };
 
 /*
@@ -63,7 +66,7 @@ struct term_data
  * the things that would normally go into a "term_data" structure
  * could be made into global variables instead.
  */
-#define MAX_GTK_NEW_TERM 2
+#define MAX_GTK_NEW_TERM 8
 
 /*
  * An array of "term_data" structures, one for each "sub-window"

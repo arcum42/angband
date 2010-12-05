@@ -23,6 +23,7 @@
 #include "main-gtk.h"
 #include "main.h"
 #include "gtk-term.h"
+#include "gtk-drawing.h"
 
 #include "textui.h"
 #include "game-event.h"
@@ -31,6 +32,9 @@
 
 static bool game_in_progress = false;
 
+extern void create_window(term_data *td);
+extern void delete_window(term_data *td);
+
 /*
  * Help message.
  *   1st line = max 68 chars.
@@ -38,6 +42,135 @@ static bool game_in_progress = false;
  */
 const char help_gtk[] = "Describe XXX, subopts -describe suboptions here";
 
+
+gboolean toggle_window(GtkWidget *widget, gchar* user_data)
+{
+	int i = -1;
+	term_data* td;
+	
+	sscanf((char*)user_data, "Window %d", &i);
+	td = &term_window[i];
+	
+	td->visible = gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(widget));
+	if (td != 0)
+	{
+		if (td->visible)
+			create_window(td);
+		else
+			delete_window(td);
+	}
+	return false;
+}
+
+/*** Function hooks needed by "Term" ***/
+
+GtkWidget* create_menus()
+{
+	GtkWidget* menubar;
+	GtkWidget* file_menu, *file_item, *new_item, *open_item, *save_item, *quit_item;
+	GtkWidget* window_menu, *window_item;
+	int i = 0;
+	
+	menubar = gtk_menu_bar_new();
+	file_menu = gtk_menu_new();
+	window_menu = gtk_menu_new();
+		
+	file_item = gtk_menu_item_new_with_label("File");
+	
+	new_item = gtk_menu_item_new_with_label("New");
+	gtk_menu_append(GTK_MENU(file_menu), new_item);
+	g_signal_connect(GTK_OBJECT(new_item), "activate", G_CALLBACK(new_gtk_game), NULL);
+	
+	open_item = gtk_menu_item_new_with_label("Open");
+	gtk_menu_append(GTK_MENU(file_menu), open_item);
+	g_signal_connect(GTK_OBJECT(open_item), "activate", G_CALLBACK(open_gtk_game), NULL);
+	
+	save_item = gtk_menu_item_new_with_label("Save");
+	gtk_menu_append(GTK_MENU(file_menu), save_item);
+	g_signal_connect(GTK_OBJECT(save_item), "activate", G_CALLBACK(save_gtk_game), NULL);
+	
+	quit_item = gtk_menu_item_new_with_label("Quit");
+	gtk_menu_append(GTK_MENU(file_menu), quit_item);
+	g_signal_connect(GTK_OBJECT(quit_item), "activate", G_CALLBACK(quit_gtk), NULL);
+	
+	window_item = gtk_menu_item_new_with_label("Window");
+	for(i = 1; i < MAX_GTK_NEW_TERM; i++)
+	{
+		char title[10];
+		term_data* td =  &term_window[i];
+			
+		sprintf (title, "Window %d", i);
+		 td->menu_item = gtk_check_menu_item_new_with_label(title);
+		gtk_menu_append(GTK_MENU(window_menu),  td->menu_item);
+		gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(td->menu_item), td->visible);
+		g_signal_connect(GTK_OBJECT( td->menu_item), "activate", G_CALLBACK(toggle_window), (gpointer) g_strdup ((gchar*)&title));
+	}	
+	
+	gtk_menu_item_set_submenu( GTK_MENU_ITEM(file_item), file_menu);
+	gtk_menu_item_set_submenu( GTK_MENU_ITEM(window_item), window_menu);
+	
+	gtk_menu_bar_append( GTK_MENU_BAR (menubar), file_item);
+	gtk_menu_bar_append( GTK_MENU_BAR (menubar), window_item);
+	return menubar;
+}
+
+void create_window(term_data *td)
+{
+	GtkWidget* widget, *box;
+	
+	widget = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+	td->window = GTK_WINDOW(widget);
+	box = gtk_vbox_new(false, 0);
+	gtk_container_add(GTK_CONTAINER (td->window), GTK_WIDGET(box));
+	
+	if (td->id == 0)
+	{
+		td->visible = true;
+		gtk_window_set_title(td->window, "Angband");
+		g_signal_connect(td->window, "delete-event", G_CALLBACK (quit_gtk), NULL);
+		g_signal_connect(td->window, "destroy",  G_CALLBACK (quit_gtk), NULL);
+		g_signal_connect(td->window, "key_press_event",  G_CALLBACK (keypress_event_handler), NULL);
+		gtk_container_add(GTK_CONTAINER (box), GTK_WIDGET(create_menus()));
+		
+	}
+	else
+	{
+		char title[10];
+		strnfmt(title, sizeof(title), "Term %d", td->id);
+		gtk_window_set_title(td->window, title);
+		g_signal_connect(td->window, "delete-event", G_CALLBACK (close_window), NULL);
+		g_signal_connect(td->window, "destroy",  G_CALLBACK (close_window), NULL);
+		g_signal_connect(td->window, "key_press_event",  G_CALLBACK (keypress_event_handler), NULL);
+		gtk_window_set_deletable(td->window, false);
+	}
+	
+	create_drawing_area(td);
+	gtk_container_add(GTK_CONTAINER (box), GTK_WIDGET(td->drawing));
+	gtk_widget_add_events(GTK_WIDGET(td->drawing), GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
+	g_signal_connect(td->drawing, "button_release_event",  G_CALLBACK (on_mouse_click), NULL);
+	gtk_widget_show_all(GTK_WIDGET(td->window));
+}
+
+void delete_window(term_data *td)
+{
+	td->visible = false;
+	gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(td->menu_item), td->visible);
+	gtk_widget_destroy(GTK_WIDGET(td->window));
+}
+
+gboolean on_mouse_click(GtkWidget *widget, GdkEventButton *event, gpointer user_data)
+{
+	term_data *td = (term_data*)(Term->data);
+	
+	/* Where is the mouse? */
+	int x = event->x / td->font_w;
+	int y = event->y / td->font_h;
+	int z = event->button;
+	
+	Term_mousepress(x, y, z);
+
+	return false;
+}
 
 gboolean keypress_event_handler(GtkWidget *widget, GdkEventKey *event, gpointer user_data)
 {
@@ -220,7 +353,16 @@ char* save_dialog_box()
 
 gboolean close_window(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
-	gtk_widget_destroy(widget);
+	for(int i = 1; i < MAX_GTK_NEW_TERM; i++)
+	{
+		term_data* td = &term_window[i];
+		if (td->window == GTK_WINDOW(widget)) 
+		{
+			td->visible = false;
+			gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(td->menu_item), td->visible);
+			gtk_widget_destroy(GTK_WIDGET(td->window));
+		}
+	}
 	return true;
 }
 
@@ -250,7 +392,7 @@ gboolean save_gtk_game(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 	{
 		if (!inkey_flag)
 		{
-			//glog( "You may not do that right now.");
+			printf( "You may not do that right now.");
 			return false;
 		}
 

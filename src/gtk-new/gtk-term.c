@@ -26,42 +26,13 @@
 #include <pango/pangocairo.h>
 
 
+extern void create_window(term_data *td);
+extern void delete_window(term_data *td);
+
 /*
  * An array of "term_data" structures, one for each "sub-window"
  */
 term_data term_window[MAX_GTK_NEW_TERM];
-
-
-/*** Function hooks needed by "Term" ***/
-
-GtkWidget* create_menus()
-{
-	GtkWidget* menubar;
-	GtkWidget* file_menu, *file_item, *new_item, *open_item, *save_item, *quit_item;
-	
-	menubar = gtk_menu_bar_new();
-	file_menu = gtk_menu_new();
-		
-	file_item = gtk_menu_item_new_with_label("File");
-	new_item = gtk_menu_item_new_with_label("New");
-	open_item = gtk_menu_item_new_with_label("Open");
-	save_item = gtk_menu_item_new_with_label("Save");
-	quit_item = gtk_menu_item_new_with_label("Quit");
-		
-	gtk_menu_append(GTK_MENU(file_menu), new_item);
-	gtk_menu_append(GTK_MENU(file_menu), open_item);
-	gtk_menu_append(GTK_MENU(file_menu), save_item);
-	gtk_menu_append(GTK_MENU(file_menu), quit_item);
-		
-	gtk_signal_connect_object(GTK_OBJECT(new_item), "activate", GTK_SIGNAL_FUNC(new_gtk_game), NULL);
-	gtk_signal_connect_object(GTK_OBJECT(open_item), "activate", GTK_SIGNAL_FUNC(open_gtk_game), NULL);
-	gtk_signal_connect_object(GTK_OBJECT(save_item), "activate", GTK_SIGNAL_FUNC(save_gtk_game), NULL);
-	gtk_signal_connect_object(GTK_OBJECT(quit_item), "activate", GTK_SIGNAL_FUNC(quit_gtk), NULL);
-		
-	gtk_menu_item_set_submenu( GTK_MENU_ITEM(file_item), file_menu);
-	gtk_menu_bar_append( GTK_MENU_BAR (menubar), file_item);
-	return menubar;
-}
 
 /*
  * Init a new "term"
@@ -73,44 +44,16 @@ GtkWidget* create_menus()
  */
 static void Term_init_gtk(term *t)
 {
-	GtkWidget* widget, *box;
-	
 	term_data *td = (term_data*)(t->data);
 	
 	create_font(td);
 	create_surface(td);
 	
-	widget = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-	td->window = GTK_WINDOW(widget);
-	box = gtk_vbox_new(false, 0);
-	gtk_container_add(GTK_CONTAINER (td->window), GTK_WIDGET(box));
-	
-	
-	if (td->id == 0)
+	if ((td->visible) || (td->id == 0))
 	{
-		gtk_window_set_title(td->window, "Angband");
-		g_signal_connect(td->window, "delete-event", G_CALLBACK (quit_gtk), NULL);
-		g_signal_connect(td->window, "destroy",  G_CALLBACK (quit_gtk), NULL);
-		g_signal_connect(td->window, "key_press_event",  G_CALLBACK (keypress_event_handler), NULL);
-		gtk_container_add(GTK_CONTAINER (box), GTK_WIDGET(create_menus()));
-		
+		create_window(td);
 	}
-	else
-	{
-		char title[10];
-		strnfmt(title, sizeof(title), "Term %d", td->id);
-		gtk_window_set_title(td->window, title);
-		g_signal_connect(td->window, "delete-event", G_CALLBACK (close_window), NULL);
-		g_signal_connect(td->window, "destroy",  G_CALLBACK (close_window), NULL);
-		g_signal_connect(td->window, "key_press_event",  G_CALLBACK (keypress_event_handler), NULL);
-	}
-	create_drawing_area(td);
-	gtk_container_add(GTK_CONTAINER (box), GTK_WIDGET(td->drawing));
-	
-	gtk_widget_show_all(GTK_WIDGET(td->window));
 }
-
-
 
 /*
  * Nuke an old "term"
@@ -122,7 +65,7 @@ static void Term_init_gtk(term *t)
  */
 static void Term_nuke_gtk(term *t)
 {
-	term_data *td = (term_data*)(t->data);
+	//term_data *td = (term_data*)(t->data);
 }
 
 static errr Term_fresh_gtk(void)
@@ -164,7 +107,7 @@ static  errr Term_clear_gtk()
  */
 static errr Term_xtra_gtk(int n, int v)
 {
-	term_data *td = (term_data*)(Term->data);
+	//term_data *td = (term_data*)(Term->data);
 	
 	/* Handle a subset of the legal requests */
 	switch (n)
@@ -329,7 +272,7 @@ static errr Term_text_gtk(int x, int y, int n, byte a, const char *cp)
 static errr Term_pict_gtk(int x, int y, int n, const byte *ap, const char *cp,
                           const byte *tap, const char *tcp)
 {
-	term_data *td = (term_data*)(Term->data);
+	//term_data *td = (term_data*)(Term->data);
 
 	/* XXX XXX XXX */
 
