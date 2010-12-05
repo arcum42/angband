@@ -96,15 +96,15 @@ void init_graf(int g)
 			printf("Graphics: David Gervais\n");
 			break;
 		}
-		/*case GRAPHICS_NOMAD:	
+		case GRAPHICS_NOMAD:	
 		{
 			ANGBAND_GRAF = "nomad";
 			path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_GRAF, "8x16.png");
-			use_transparency = TRUE;
+			use_transparency = true;
 			tile_w = tile_h = 16;
+			printf("Graphics: Nomad\n");
 			break;
-			
-		}*/
+		}
 	}
 
 	/* Free up old graphics */
@@ -173,11 +173,7 @@ void get_font_size(term_data* td)
 	
 	td->window_w = td->font_w * 80;
 	td->window_h = td->font_h * 24;
-}
-
-void create_font(term_data* td)
-{
-	get_font_size(td);
+	//printf("font width == %d, height = %d.\n", td->font_w, td->font_h);
 }
 
 void draw_tile(term_data* td, int x, int y, int tx, int ty)
@@ -317,7 +313,10 @@ void create_drawing_area(term_data* td)
 	td->drawing = GTK_DRAWING_AREA(widget);
 	
 	gtk_widget_set_size_request(GTK_WIDGET(td->drawing), td->window_w, td->window_h);
+	gtk_widget_add_events(GTK_WIDGET(td->drawing), GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
+	
 	g_signal_connect(G_OBJECT (td->drawing), "expose_event", G_CALLBACK (expose_drawing), td->surface);
+	g_signal_connect(td->drawing, "button_release_event",  G_CALLBACK (on_mouse_click), NULL);
 }
 
 

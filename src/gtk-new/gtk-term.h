@@ -45,8 +45,9 @@ struct term_data
 	GtkWindow* window;
 	GtkDrawingArea* drawing;
 	GtkWidget* menu_item;
+	GtkWidget* toolbar;
 	cairo_surface_t* surface;
-	char font[20];
+	char font[256];
 	int font_w, font_h;
 	int window_w, window_h;
 	uint id;
@@ -75,6 +76,10 @@ term_data term_window[MAX_GTK_NEW_TERM];
 
 extern void term_data_link(int i);
 extern void force_redraw();
+extern void term_data_redraw(term_data *td);
+
+extern void create_window(term_data *td);
+extern void delete_window(term_data *td);
 
 #endif
 #endif

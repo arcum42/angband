@@ -23,11 +23,36 @@
 #include "main.h"
 #include "gtk-term.h"
 #include "gtk-drawing.h"
-#include <pango/pangocairo.h>
+#include <iconv.h>
 
+iconv_t conv;
 
-extern void create_window(term_data *td);
-extern void delete_window(term_data *td);
+/* this is used to draw the various terrain characters */
+static unsigned int graphics_table[32] = {
+	000, '*', '#', '?', '?', '?', '?', '.',
+	'+', '?', '?', '+', '+', '+', '+', '+',
+	'~', '-', '-', '-', '_', '+', '+', '+',
+	'+', '|', '?', '?', '?', '?', '?', '.',
+};
+
+/*
+ * Hack -- redraw a term_data.
+ * Note that "Term_redraw()" calls "TERM_XTRA_CLEAR"
+ */
+void term_data_redraw(term_data *td)
+{
+	term *old = Term;
+	
+	/* Activate the term passed to it, not term 0! */
+	Term_activate(&td->t);
+
+	//Term_resize(td->cols, td->rows);
+	Term_resize(80,24);
+	Term_redraw();
+	Term_fresh();
+	
+	Term_activate(old);
+}
 
 void force_redraw()
 {
@@ -46,16 +71,14 @@ term_data term_window[MAX_GTK_NEW_TERM];
 /*
  * Init a new "term"
  *
- * This function should do whatever is necessary to prepare a new "term"
- * for use by the "z-term.c" package.  This may include clearing the window,
- * preparing the cursor, setting the font/colors, etc.  Usually, this
- * function does nothing, and the "init_xxx()" function does it all.
+ * Create the surfaces in memory for each window, and the window itself if neccessary.
+ *
  */
 static void Term_init_gtk(term *t)
 {
 	term_data *td = (term_data*)(t->data);
 	
-	create_font(td);
+	get_font_size(td);
 	create_surface(td);
 	
 	if ((td->visible) || (td->id == 0))
@@ -67,14 +90,10 @@ static void Term_init_gtk(term *t)
 /*
  * Nuke an old "term"
  *
- * This function is called when an old "term" is no longer needed.  It should
- * do whatever is needed to clean up before the program exits, such as wiping
- * the screen, restoring the cursor, fixing the font, etc.  Often this function
- * does nothing and lets the operating system clean up when the program quits.
+ * Just a stub right now.
  */
 static void Term_nuke_gtk(term *t)
 {
-	//term_data *td = (term_data*)(t->data);
 }
 
 static errr Term_fresh_gtk(void)
@@ -100,18 +119,6 @@ static  errr Term_clear_gtk()
 
 /*
  * Do a "special thing" to the current "term"
- *
- * This function must react to a large number of possible arguments, each
- * corresponding to a different "action request" by the "z-term.c" package,
- * or by the application itself.
- *
- * The "action type" is specified by the first argument, which must be a
- * constant of the form "TERM_XTRA_*" as given in "z-term.h", and the second
- * argument specifies the "information" for that argument, if any, and will
- * vary according to the first argument.
- *
- * In general, this function should return zero if the action is successfully
- * handled, and non-zero if the action is unknown or incorrectly handled.
  */
 static errr Term_xtra_gtk(int n, int v)
 {
@@ -166,18 +173,8 @@ static errr Term_xtra_gtk(int n, int v)
 /*
  * Display the cursor
  *
- * This routine should display the cursor at the given location
- * (x,y) in some manner.  On some machines this involves actually
- * moving the physical cursor, on others it involves drawing a fake
- * cursor in some form of graphics mode.  Note the "soft_cursor"
- * flag which tells "z-term.c" to treat the "cursor" as a "visual"
- * thing and not as a "hardware" cursor.
+ * The cursor is implemented by just hiliting the current character in grey right now.
  *
- * You may assume "valid" input if the window is properly sized.
- *
- * You may use the "Term_what(x, y, &a, &c)" function, if needed,
- * to determine what attr/char should be "under" the new cursor,
- * for "inverting" purposes or whatever.
  */
 static errr Term_curs_gtk(int x, int y)
 {
@@ -196,6 +193,7 @@ static errr Term_curs_gtk(int x, int y)
  * This function should erase "n" characters starting at (x,y).
  *
  * You may assume "valid" input if the window is properly sized.
+ *
  */
 static errr Term_wipe_gtk(int x, int y, int n)
 {
@@ -208,42 +206,67 @@ static errr Term_wipe_gtk(int x, int y, int n)
 }
 
 
+static byte Term_xchar_gtk(byte c)
+{
+	/* Can't translate Latin-1 to UTF-8 here since we have to return a byte. */
+	return c;
+}
+
+char *process_control_chars(int n, cptr s)
+{
+	char *s2 = (char *)malloc(sizeof(char) * n);
+	int i;
+	for (i = 0; i < n; i++) {
+		unsigned char c = s[i];
+		if (c < 32) {
+			s2[i] = graphics_table[c];
+		} else if (c == 127) {
+			s2[i] = '#';
+		} else {
+			s2[i] = c;
+		}
+	}
+
+	return s2;
+}
+
+char *latin1_to_utf8(int n, cptr s)
+{
+	size_t inbytes = n;
+	char *s2 = process_control_chars(n, s);
+	char *p2 = s2;
+
+	size_t outbytes = 4 * n;
+	char *s3 = (char *)malloc(sizeof(char) * outbytes);
+	char *p3 = s3;
+
+	size_t result = iconv(conv, &p2, &inbytes, &p3, &outbytes);
+
+	if (result == (size_t)(-1)) {
+		printf("iconv() failed: %d\n", errno);
+		free(s3);
+		return s2;
+	} else {
+		free(s2);
+		return s3;
+	}
+}
+
 /*
  * Draw some text on the screen
- *
- * This function should actually display an array of characters
- * starting at the given location, using the given "attribute",
- * and using the given string of characters, which contains
- * exactly "n" characters and which is NOT null-terminated.
- *
- * You may assume "valid" input if the window is properly sized.
- *
- * You must be sure that the string, when written, erases anything
- * (including any visual cursor) that used to be where the text is
- * drawn.  On many machines this happens automatically, on others,
- * you must first call "Term_wipe_xxx()" to clear the area.
- *
- * In color environments, you should activate the color contained
- * in "color_data[a & BASIC_COLORS]", if needed, before drawing anything.
- *
- * You may ignore the "attribute" if you are only supporting a
- * monochrome environment, since this routine is normally never
- * called to display "black" (invisible) text, including the
- * default "spaces", and all other colors should be drawn in
- * the "normal" color in a monochrome environment.
- *
- * Note that if you have changed the "attr_blank" to something
- * which is not black, then this function must be able to draw
- * the resulting "blank" correctly.
- *
- * Note that this function must correctly handle "black" text if
- * the "always_text" flag is set, if this flag is not set, all the
- * "black" text will be handled by the "Term_wipe_xxx()" hook.
  */
 static errr Term_text_gtk(int x, int y, int n, byte a, const char *cp)
 {
 	term_data *td = (term_data*)(Term->data);
-	write_chars(td, x, y, n, a, cp);
+	
+	char *s2;
+	
+	if (conv == NULL)
+		s2 = process_control_chars(n, cp);
+	else
+		s2 = latin1_to_utf8(n, cp);
+	
+	write_chars(td, x, y, n, a, s2);
 
 	/* Success */
 	return (0);
@@ -253,28 +276,8 @@ static errr Term_text_gtk(int x, int y, int n, byte a, const char *cp)
 /*
  * Draw some attr/char pairs on the screen
  *
- * This routine should display the given "n" attr/char pairs at
- * the given location (x,y).  This function is only used if one
- * of the flags "always_pict" or "higher_pict" is defined.
- *
- * You must be sure that the attr/char pairs, when displayed, will
- * erase anything (including any visual cursor) that used to be at
- * the given location.  On many machines this is automatic, but on
- * others, you must first call "Term_wipe_xxx(x, y, 1)".
- *
- * With the "higher_pict" flag, this function can be used to allow
- * the display of "pseudo-graphic" pictures, for example, by using
- * the attr/char pair as an encoded index into a pixmap of special
- * "pictures".
- *
- * With the "always_pict" flag, this function can be used to force
- * every attr/char pair to be drawn by this function, which can be
- * very useful if this file can optimize its own display calls.
- *
- * This function is often associated with the "arg_graphics" flag.
- *
- * This function is only used if one of the "higher_pict" and/or
- * "always_pict" flags are set.
+ * Basically, what we have here is that Angband wants to draw a series of n tiles at x/y. ap[n]/cp[n] gives you which tiles are in the foreground,
+ * and tap/tcp are the terrain tiles for the background. Don't ask me why we don't put it all in a struct, and pass an array of that struct.
  */
 static errr Term_pict_gtk(int x, int y, int n, const byte *ap, const char *cp, const byte *tap, const char *tcp)
 {
@@ -291,20 +294,6 @@ static errr Term_pict_gtk(int x, int y, int n, const byte *ap, const char *cp, c
 
 /*
  * Instantiate a "term_data" structure
- *
- * This is one way to prepare the "term_data" structures and to
- * "link" the various informational pieces together.
- *
- * This function assumes that every window should be 80x24 in size
- * (the standard size) and should be able to queue 256 characters.
- * Technically, only the "main screen window" needs to queue any
- * characters, but this method is simple.  One way to allow some
- * variation is to add fields to the "term_data" structure listing
- * parameters for that window, initialize them in the "init_xxx()"
- * function, and then use them in the code below.
- *
- * Note that "activation" calls the "Term_init_xxx()" hook for
- * the "term" structure, if needed.
  */
 void term_data_link(int i)
 {
@@ -312,6 +301,13 @@ void term_data_link(int i)
 	term *t = &td->t;
 	td->id = i;
 
+	conv = iconv_open("UTF-8", "ISO-8859-1");
+	if (conv == (iconv_t)(-1)) 
+	{
+		printf("iconv_open() failed: %d\n", errno);
+		conv = NULL;
+	}
+	
 	/* Initialize the term */
 	term_init(t, 80, 24, 256);
 
@@ -334,7 +330,8 @@ void term_data_link(int i)
 	t->wipe_hook = Term_wipe_gtk;
 	t->curs_hook = Term_curs_gtk;
 	t->pict_hook = Term_pict_gtk;
-
+	if (conv != NULL) t->xchar_hook = Term_xchar_gtk;
+	
 	/* Remember where we came from */
 	t->data = td;
 	my_strcpy(td->font, "Monospace 10", 13);

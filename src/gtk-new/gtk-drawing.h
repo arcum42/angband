@@ -28,7 +28,8 @@ extern int window_height;
 
 extern void create_drawing_area(term_data* td);
 extern void create_surface(term_data* td);
-extern void create_font();
+extern void resize_surface(term_data* td);
+extern void get_font_size(term_data* td);
 extern void write_char(term_data* td, char text, int x, int y, byte a);
 extern void write_chars(term_data* td, int x, int y, int n, byte a, const char* text);
 extern void draw_tiles(term_data* td, int x, int y, int n, const byte *ap, const char *cp, const byte *tap, const char *tcp);

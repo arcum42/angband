@@ -34,7 +34,7 @@ bool game_in_progress = false;
 
 extern void create_window(term_data *td);
 extern void delete_window(term_data *td);
-
+void pick_font();
 /*
  * Help message.
  *   1st line = max 68 chars.
@@ -99,6 +99,7 @@ GtkWidget* create_file_menu()
 GtkWidget* create_window_menu()
 {
 	GtkWidget* window_menu, *window_item;
+	//GtkWidget *font_item;
 	
 	window_menu = gtk_menu_new();
 	window_item = gtk_menu_item_new_with_label("Window");
@@ -114,6 +115,11 @@ GtkWidget* create_window_menu()
 		gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(td->menu_item), td->visible);
 		g_signal_connect(GTK_OBJECT( td->menu_item), "activate", G_CALLBACK(toggle_window), (gpointer) g_strdup ((gchar*)&title));
 	}
+	
+	/*font_item = gtk_menu_item_new_with_label("Pick Font...");
+	gtk_menu_append(GTK_MENU(window_menu), font_item);
+	g_signal_connect(GTK_OBJECT(font_item), "activate", G_CALLBACK(pick_font), NULL);*/
+	
 	gtk_menu_item_set_submenu( GTK_MENU_ITEM(window_item), window_menu);
 	
 	return window_item;
@@ -122,7 +128,7 @@ GtkWidget* create_window_menu()
 
 GtkWidget* create_graphics_menu()
 {
-	GtkWidget* graf_menu, *graf_item, *graf1_item, *graf2_item, *graf3_item, *graf4_item;
+	GtkWidget* graf_menu, *graf_item, *graf1_item, *graf2_item, *graf3_item, *graf4_item, *graf5_item;
 	
 	graf_menu = gtk_menu_new();
 	graf_item = gtk_menu_item_new_with_label("Graphics");
@@ -143,9 +149,9 @@ GtkWidget* create_graphics_menu()
 	gtk_menu_append(GTK_MENU(graf_menu), graf4_item);
 	g_signal_connect(GTK_OBJECT(graf4_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_DAVID_GERVAIS);
 	
-	/*graf5_item = gtk_menu_item_new_with_label("Nomad");
-	gtk_menu_append(GTK_MENU(graf_menu), graf1_item);
-	g_signal_connect(GTK_OBJECT(graf1_item), "activate", G_CALLBACK(init_graf), (gpointer)GRAPHICS_NOMAD);*/
+	graf5_item = gtk_menu_item_new_with_label("Nomad");
+	gtk_menu_append(GTK_MENU(graf_menu), graf5_item);
+	g_signal_connect(GTK_OBJECT(graf5_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_NOMAD);
 	
 	gtk_menu_item_set_submenu( GTK_MENU_ITEM(graf_item), graf_menu);
 	return graf_item;
@@ -179,9 +185,7 @@ void create_window(term_data *td)
 		gtk_window_set_title(td->window, "Angband");
 		g_signal_connect(td->window, "delete-event", G_CALLBACK (quit_gtk), NULL);
 		g_signal_connect(td->window, "destroy",  G_CALLBACK (quit_gtk), NULL);
-		g_signal_connect(td->window, "key_press_event",  G_CALLBACK (keypress_event_handler), NULL);
 		gtk_container_add(GTK_CONTAINER (box), GTK_WIDGET(create_menus()));
-		
 	}
 	else
 	{
@@ -190,14 +194,13 @@ void create_window(term_data *td)
 		gtk_window_set_title(td->window, title);
 		g_signal_connect(td->window, "delete-event", G_CALLBACK (close_window), NULL);
 		g_signal_connect(td->window, "destroy",  G_CALLBACK (close_window), NULL);
-		g_signal_connect(td->window, "key_press_event",  G_CALLBACK (keypress_event_handler), NULL);
-		gtk_window_set_deletable(td->window, false);
 	}
 	
+	g_signal_connect(td->window, "key_press_event",  G_CALLBACK (keypress_event_handler), NULL);
+	gtk_window_set_resizable(td->window, false);
 	create_drawing_area(td);
-	gtk_container_add(GTK_CONTAINER (box), GTK_WIDGET(td->drawing));
-	gtk_widget_add_events(GTK_WIDGET(td->drawing), GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
-	g_signal_connect(td->drawing, "button_release_event",  G_CALLBACK (on_mouse_click), NULL);
+	gtk_container_add(GTK_CONTAINER (box),GTK_WIDGET(td->drawing));
+	
 	gtk_widget_show_all(GTK_WIDGET(td->window));
 }
 
@@ -337,6 +340,30 @@ gboolean keypress_event_handler(GtkWidget *widget, GdkEventKey *event, gpointer 
 	}
 
 	return true;
+}
+
+void pick_font()
+{
+	char *fontname;
+	GtkWidget *dialog;
+	term_data* td = &term_window[0];
+	
+	dialog = gtk_font_selection_dialog_new("Pick a font, preferably fixed-width.");
+	gtk_font_selection_dialog_set_font_name(GTK_FONT_SELECTION_DIALOG(dialog), td->font);
+	gtk_font_selection_dialog_set_preview_text(GTK_FONT_SELECTION_DIALOG(dialog), "The Boil-covered wretch drools on you!");
+	
+	if (gtk_dialog_run (GTK_DIALOG (dialog)) == GTK_RESPONSE_OK)
+	  {
+		 fontname = gtk_font_selection_dialog_get_font_name(GTK_FONT_SELECTION_DIALOG(dialog));
+		for(int i = 0; i < MAX_GTK_NEW_TERM; i++)
+		{
+			td = &term_window[i];
+			//my_strcpy(td->font, fontname, sizeof(td->font));
+		}
+	  }
+	  
+	gtk_widget_destroy (dialog);
+	
 }
 
 char* open_dialog_box()
