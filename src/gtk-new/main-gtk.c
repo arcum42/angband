@@ -30,7 +30,7 @@
 #include "macro.h"
 #include "files.h"
 
-static bool game_in_progress = false;
+bool game_in_progress = false;
 
 extern void create_window(term_data *td);
 extern void delete_window(term_data *td);
@@ -42,6 +42,13 @@ extern void delete_window(term_data *td);
  */
 const char help_gtk[] = "Describe XXX, subopts -describe suboptions here";
 
+
+gboolean change_graphics(GtkWidget *widget, int user_data)
+{
+	printf("Change graphics to %d\n", user_data);
+	init_graf(user_data);
+	return true;
+}
 
 gboolean toggle_window(GtkWidget *widget, gchar* user_data)
 {
@@ -62,19 +69,11 @@ gboolean toggle_window(GtkWidget *widget, gchar* user_data)
 	return false;
 }
 
-/*** Function hooks needed by "Term" ***/
-
-GtkWidget* create_menus()
+GtkWidget* create_file_menu()
 {
-	GtkWidget* menubar;
 	GtkWidget* file_menu, *file_item, *new_item, *open_item, *save_item, *quit_item;
-	GtkWidget* window_menu, *window_item;
-	int i = 0;
-	
-	menubar = gtk_menu_bar_new();
-	file_menu = gtk_menu_new();
-	window_menu = gtk_menu_new();
 		
+	file_menu = gtk_menu_new();
 	file_item = gtk_menu_item_new_with_label("File");
 	
 	new_item = gtk_menu_item_new_with_label("New");
@@ -93,8 +92,18 @@ GtkWidget* create_menus()
 	gtk_menu_append(GTK_MENU(file_menu), quit_item);
 	g_signal_connect(GTK_OBJECT(quit_item), "activate", G_CALLBACK(quit_gtk), NULL);
 	
+	gtk_menu_item_set_submenu( GTK_MENU_ITEM(file_item), file_menu);
+	return file_item;
+}
+
+GtkWidget* create_window_menu()
+{
+	GtkWidget* window_menu, *window_item;
+	
+	window_menu = gtk_menu_new();
 	window_item = gtk_menu_item_new_with_label("Window");
-	for(i = 1; i < MAX_GTK_NEW_TERM; i++)
+	
+	for(int i = 1; i < MAX_GTK_NEW_TERM; i++)
 	{
 		char title[10];
 		term_data* td =  &term_window[i];
@@ -104,13 +113,54 @@ GtkWidget* create_menus()
 		gtk_menu_append(GTK_MENU(window_menu),  td->menu_item);
 		gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(td->menu_item), td->visible);
 		g_signal_connect(GTK_OBJECT( td->menu_item), "activate", G_CALLBACK(toggle_window), (gpointer) g_strdup ((gchar*)&title));
-	}	
-	
-	gtk_menu_item_set_submenu( GTK_MENU_ITEM(file_item), file_menu);
+	}
 	gtk_menu_item_set_submenu( GTK_MENU_ITEM(window_item), window_menu);
 	
-	gtk_menu_bar_append( GTK_MENU_BAR (menubar), file_item);
-	gtk_menu_bar_append( GTK_MENU_BAR (menubar), window_item);
+	return window_item;
+	
+}
+
+GtkWidget* create_graphics_menu()
+{
+	GtkWidget* graf_menu, *graf_item, *graf1_item, *graf2_item, *graf3_item, *graf4_item;
+	
+	graf_menu = gtk_menu_new();
+	graf_item = gtk_menu_item_new_with_label("Graphics");
+	
+	graf1_item = gtk_menu_item_new_with_label("No Graphics");
+	gtk_menu_append(GTK_MENU(graf_menu), graf1_item);
+	g_signal_connect(GTK_OBJECT(graf1_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_NONE);
+	
+	graf2_item = gtk_menu_item_new_with_label("Original");
+	gtk_menu_append(GTK_MENU(graf_menu), graf2_item);
+	g_signal_connect(GTK_OBJECT(graf2_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_ORIGINAL);
+	
+	graf3_item = gtk_menu_item_new_with_label("Adam Bolt");
+	gtk_menu_append(GTK_MENU(graf_menu), graf3_item);
+	g_signal_connect(GTK_OBJECT(graf3_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_ADAM_BOLT);
+	
+	graf4_item = gtk_menu_item_new_with_label("David Gervais");
+	gtk_menu_append(GTK_MENU(graf_menu), graf4_item);
+	g_signal_connect(GTK_OBJECT(graf4_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_DAVID_GERVAIS);
+	
+	/*graf5_item = gtk_menu_item_new_with_label("No Graphics");
+	gtk_menu_append(GTK_MENU(graf_menu), graf1_item);
+	g_signal_connect(GTK_OBJECT(graf1_item), "activate", G_CALLBACK(init_graf), (gpointer)GRAPHICS_ORIGINAL);*/
+	
+	gtk_menu_item_set_submenu( GTK_MENU_ITEM(graf_item), graf_menu);
+	return graf_item;
+}
+/*** Function hooks needed by "Term" ***/
+
+GtkWidget* create_menus()
+{
+	GtkWidget* menubar;
+	
+	menubar = gtk_menu_bar_new();
+	
+	gtk_menu_bar_append( GTK_MENU_BAR (menubar), create_file_menu());
+	gtk_menu_bar_append( GTK_MENU_BAR (menubar), create_window_menu());
+	gtk_menu_bar_append( GTK_MENU_BAR (menubar), create_graphics_menu());
 	return menubar;
 }
 
@@ -504,6 +554,7 @@ errr init_gtk(int argc, char **argv)
 	
 	/* Set up the display handlers and things. */
 	init_display();
+	init_graf(arg_graphics);
 	
 	/* Let's play */
 	play_game();

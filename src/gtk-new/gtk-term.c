@@ -29,6 +29,15 @@
 extern void create_window(term_data *td);
 extern void delete_window(term_data *td);
 
+void force_redraw()
+{
+	if (game_in_progress)
+	{
+		reset_visuals(TRUE);
+		Term_key_push(KTRL('R'));
+	}
+}
+
 /*
  * An array of "term_data" structures, one for each "sub-window"
  */
@@ -72,7 +81,6 @@ static errr Term_fresh_gtk(void)
 {
 	term_data *td = (term_data*)(Term->data);
 	term_redraw(td);
-	//gdk_window_process_updates(td->win->window, 1);
 	return (0);
 }
 
@@ -194,7 +202,6 @@ static errr Term_wipe_gtk(int x, int y, int n)
 	term_data *td = (term_data*)(Term->data);
 
 	clear_chars(td, x, y, n);
-	/* XXX XXX XXX */
 
 	/* Success */
 	return (0);
@@ -272,9 +279,9 @@ static errr Term_text_gtk(int x, int y, int n, byte a, const char *cp)
 static errr Term_pict_gtk(int x, int y, int n, const byte *ap, const char *cp,
                           const byte *tap, const char *tcp)
 {
-	//term_data *td = (term_data*)(Term->data);
-
-	/* XXX XXX XXX */
+	term_data *td = (term_data*)(Term->data);
+	draw_tiles(td, x, y, n, ap, cp, tap, tcp);
+	printf("Drawing tiles.\n");
 
 	/* Success */
 	return (0);
@@ -311,7 +318,12 @@ void term_data_link(int i)
 	term_init(t, 80, 24, 256);
 
 	/* Use a "soft" cursor */
-	t->soft_cursor = TRUE;
+	t->soft_cursor = true;
+
+	/* Erase with "dark space" */
+	t->attr_blank = TERM_DARK;
+	t->char_blank = ' ';
+	t->higher_pict = true;
 	
 	/* Prepare the init/nuke hooks */
 	t->init_hook = Term_init_gtk;

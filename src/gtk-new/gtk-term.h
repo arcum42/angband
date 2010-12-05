@@ -74,6 +74,7 @@ struct term_data
 term_data term_window[MAX_GTK_NEW_TERM];
 
 extern void term_data_link(int i);
+extern void force_redraw();
 
 #endif
 #endif
