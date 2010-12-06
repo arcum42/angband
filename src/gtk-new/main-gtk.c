@@ -29,6 +29,7 @@
 #include "game-event.h"
 #include "macro.h"
 #include "files.h"
+#include "init.h"
 
 bool game_in_progress = false;
 
@@ -571,6 +572,9 @@ errr init_gtk(int argc, char **argv)
 	/* Initialize the environment */
 	gtk_init(&argc, &argv);
 	
+	/* Init dirs */
+	create_needed_dirs(); 
+	
 	path_build(logo, sizeof(logo), ANGBAND_DIR_XTRA_ICON, "att-256.png");
 	err = gtk_window_set_default_icon_from_file(logo, NULL);
 	
@@ -600,8 +604,13 @@ errr init_gtk(int argc, char **argv)
 	
 	/* Let's play */
 	play_game();
-	/* Stop now */
-	exit(0);
+	
+	/* Do all the things main() in main.c already does */	
+	cleanup_angband();
+		
+	quit(NULL);
+	
+	exit(0); /* just in case */
 	
 	/* Success */
 	return (0);
