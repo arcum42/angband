@@ -23,6 +23,7 @@
 #include "main.h"
 #include "gtk-term.h"
 #include "gtk-drawing.h"
+#include "main-gtk.h"
 #include <iconv.h>
 
 iconv_t conv;

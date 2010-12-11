@@ -27,6 +27,8 @@
 #define GDK_DISABLE_DEPRECATED
 #define GDK_PIXBUF_DISABLE_DEPRECATED
 #define GTK_DISABLE_DEPRECATED
+#define DISABLE_SINGLE_INCLUDES
+#define GTK_DISABLE_SINGLE_INCLUDES
     
 
 // Include our standard gtk calls, and all the key symbols needed.

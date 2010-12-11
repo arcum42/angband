@@ -20,8 +20,9 @@
 
 #ifdef USE_GTK_NEW 
 
-#include "gtk-term.h"
 #include "gtk-menus.h"
+#include "main-gtk.h"
+#include "gtk-windows.h"
 
 extern void set_graphics(int g);
 

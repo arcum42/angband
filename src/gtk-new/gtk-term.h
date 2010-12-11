@@ -26,12 +26,10 @@
 #define GTK_TERM_INCLUDE
 
 #include "gtk-common.h"
-#include "main-gtk.h"
 
 extern void term_data_link(int i);
 extern void force_redraw();
 extern void term_data_redraw(term_data *td);
-extern void set_term_visible(term_data* td, bool visible);
 
 extern void create_window(term_data *td);
 extern void delete_window(term_data *td);

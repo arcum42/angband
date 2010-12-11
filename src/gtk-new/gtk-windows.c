@@ -22,6 +22,8 @@
 
 #include "gtk-term.h"
 #include "gtk-windows.h"
+#include "main-gtk.h"
+#include "gtk-drawing.h"
 
 void save_term_position(term_data* td)
 {

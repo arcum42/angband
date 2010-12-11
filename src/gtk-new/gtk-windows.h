@@ -28,6 +28,8 @@ extern gboolean close_window(GtkWidget *widget, GdkEvent *event, gpointer user_d
 extern gboolean hide_window(GtkWidget *widget, GdkEvent *event, gpointer user_data);
 extern gboolean show_window(GtkWidget *widget, GdkEvent *event, gpointer user_data);
 
+extern void set_term_visible(term_data* td, bool visible);
+
 extern gboolean expose_drawing(GtkWidget *widget, GdkEventExpose *event, cairo_surface_t* surface);
 
 extern GtkWidget* create_menus();
