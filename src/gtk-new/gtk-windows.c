@@ -23,13 +23,23 @@
 #include "gtk-term.h"
 #include "gtk-windows.h"
 
+void save_term_position(term_data* td)
+{
+	gtk_window_get_position(GTK_WINDOW(td->window), &td->win.x, &td->win.y);
+}
+
 void set_term_visible(term_data* td, bool visible)
 {
 	td->visible = visible;
 	if (td->menu_item != NULL) gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(td->menu_item), td->visible);
 	
+	save_term_position(td);
+	
 	if (visible)
+	{
 		gtk_widget_show_all(GTK_WIDGET(td->window));
+		gtk_window_move(GTK_WINDOW(td->window), td->win.x, td->win.y);
+	}
 	else
 		gtk_widget_hide_all(GTK_WIDGET(td->window));	
 }
@@ -46,7 +56,9 @@ term_data* get_term(GtkWidget* widget)
 
 gboolean hide_window(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 {
-	set_term_visible(get_term(widget), false);
+	term_data* td = get_term(widget);
+	save_term_position(td);
+	set_term_visible(td, false);
 	return true;
 }
 
@@ -101,6 +113,7 @@ void create_window(term_data *td)
 	gtk_container_add(GTK_CONTAINER (td->box),GTK_WIDGET(td->drawing));
 
 	set_term_visible(td, td->visible);
+	//gtk_window_move(GTK_WINDOW(td->window), td->win.x, td->win.y);
 }
 
 void delete_window(term_data *td)
@@ -112,6 +125,7 @@ void delete_window(term_data *td)
 
 void resize_window(term_data *td)
 {
+	save_term_position(td);
 	gtk_widget_destroy(GTK_WIDGET(td->drawing));
 	get_font_size(td);
 	create_surface(td); // fix
@@ -120,6 +134,7 @@ void resize_window(term_data *td)
 	gtk_widget_hide_all(GTK_WIDGET(td->window));
 	gtk_widget_show_all(GTK_WIDGET(td->window));
 	term_data_redraw(td);
+	//gtk_window_move(GTK_WINDOW(td->window), td->win.x, td->win.y);
 }
 
 #endif

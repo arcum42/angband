@@ -62,19 +62,19 @@ GtkWidget* create_file_menu()
 	file_item = gtk_menu_item_new_with_label("File");
 	
 	new_item = gtk_menu_item_new_with_label("New");
-	gtk_menu_append(GTK_MENU(file_menu), new_item);
+	gtk_menu_shell_append(GTK_MENU_SHELL(file_menu), new_item);
 	g_signal_connect(GTK_OBJECT(new_item), "activate", G_CALLBACK(new_gtk_game), NULL);
 	
 	open_item = gtk_menu_item_new_with_label("Open");
-	gtk_menu_append(GTK_MENU(file_menu), open_item);
+	gtk_menu_shell_append(GTK_MENU_SHELL(file_menu), open_item);
 	g_signal_connect(GTK_OBJECT(open_item), "activate", G_CALLBACK(open_gtk_game), NULL);
 	
 	save_item = gtk_menu_item_new_with_label("Save");
-	gtk_menu_append(GTK_MENU(file_menu), save_item);
+	gtk_menu_shell_append(GTK_MENU_SHELL(file_menu), save_item);
 	g_signal_connect(GTK_OBJECT(save_item), "activate", G_CALLBACK(save_gtk_game), NULL);
 	
 	quit_item = gtk_menu_item_new_with_label("Quit");
-	gtk_menu_append(GTK_MENU(file_menu), quit_item);
+	gtk_menu_shell_append(GTK_MENU_SHELL(file_menu), quit_item);
 	g_signal_connect(GTK_OBJECT(quit_item), "activate", G_CALLBACK(quit_gtk), NULL);
 	
 	gtk_menu_item_set_submenu( GTK_MENU_ITEM(file_item), file_menu);
@@ -96,13 +96,13 @@ GtkWidget* create_window_menu()
 			
 		sprintf (title, "Window %d", i);
 		 td->menu_item = gtk_check_menu_item_new_with_label(title);
-		gtk_menu_append(GTK_MENU(window_menu),  td->menu_item);
+		gtk_menu_shell_append(GTK_MENU_SHELL(window_menu),  td->menu_item);
 		gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(td->menu_item), td->visible);
 		g_signal_connect(GTK_OBJECT( td->menu_item), "activate", G_CALLBACK(toggle_window), (gpointer) g_strdup ((gchar*)&title));
 	}
 	
 	font_item = gtk_menu_item_new_with_label("Pick Font...");
-	gtk_menu_append(GTK_MENU(window_menu), font_item);
+	gtk_menu_shell_append(GTK_MENU_SHELL(window_menu), font_item);
 	g_signal_connect(GTK_OBJECT(font_item), "activate", G_CALLBACK(pick_font), NULL);
 	
 	gtk_menu_item_set_submenu( GTK_MENU_ITEM(window_item), window_menu);
@@ -118,23 +118,23 @@ GtkWidget* create_graphics_menu()
 	graf_item = gtk_menu_item_new_with_label("Graphics");
 	
 	graf1_item = gtk_menu_item_new_with_label("No Graphics");
-	gtk_menu_append(GTK_MENU(graf_menu), graf1_item);
+	gtk_menu_shell_append(GTK_MENU_SHELL(graf_menu), graf1_item);
 	g_signal_connect(GTK_OBJECT(graf1_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_NONE);
 	
 	graf2_item = gtk_menu_item_new_with_label("Original");
-	gtk_menu_append(GTK_MENU(graf_menu), graf2_item);
+	gtk_menu_shell_append(GTK_MENU_SHELL(graf_menu), graf2_item);
 	g_signal_connect(GTK_OBJECT(graf2_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_ORIGINAL);
 	
 	graf3_item = gtk_menu_item_new_with_label("Adam Bolt");
-	gtk_menu_append(GTK_MENU(graf_menu), graf3_item);
+	gtk_menu_shell_append(GTK_MENU_SHELL(graf_menu), graf3_item);
 	g_signal_connect(GTK_OBJECT(graf3_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_ADAM_BOLT);
 	
 	graf4_item = gtk_menu_item_new_with_label("David Gervais");
-	gtk_menu_append(GTK_MENU(graf_menu), graf4_item);
+	gtk_menu_shell_append(GTK_MENU_SHELL(graf_menu), graf4_item);
 	g_signal_connect(GTK_OBJECT(graf4_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_DAVID_GERVAIS);
 	
 	graf5_item = gtk_menu_item_new_with_label("Nomad");
-	gtk_menu_append(GTK_MENU(graf_menu), graf5_item);
+	gtk_menu_shell_append(GTK_MENU_SHELL(graf_menu), graf5_item);
 	g_signal_connect(GTK_OBJECT(graf5_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_NOMAD);
 	
 	gtk_menu_item_set_submenu( GTK_MENU_ITEM(graf_item), graf_menu);
@@ -147,9 +147,9 @@ GtkWidget* create_menus()
 	
 	menubar = gtk_menu_bar_new();
 	
-	gtk_menu_bar_append( GTK_MENU_BAR (menubar), create_file_menu());
-	gtk_menu_bar_append( GTK_MENU_BAR (menubar), create_window_menu());
-	gtk_menu_bar_append( GTK_MENU_BAR (menubar), create_graphics_menu());
+	gtk_menu_shell_append( GTK_MENU_SHELL (menubar), create_file_menu());
+	gtk_menu_shell_append( GTK_MENU_SHELL (menubar), create_window_menu());
+	gtk_menu_shell_append( GTK_MENU_SHELL (menubar), create_graphics_menu());
 	return menubar;
 }
 

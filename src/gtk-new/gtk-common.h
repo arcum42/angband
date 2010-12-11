@@ -22,6 +22,13 @@
 
 #ifdef USE_GTK_NEW
 
+// Let's avoid deprecated gtk calls if we can...
+#define G_DISABLE_DEPRECATED
+#define GDK_DISABLE_DEPRECATED
+#define GDK_PIXBUF_DISABLE_DEPRECATED
+#define GTK_DISABLE_DEPRECATED
+    
+
 // Include our standard gtk calls, and all the key symbols needed.
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
@@ -55,8 +62,8 @@ typedef struct gtk_window_info gtk_window_info;
 
 struct gtk_window_info
 {
-	uint w, h;
-	uint x, y;
+	int w, h;
+	int x, y;
 };
 
 typedef struct gtk_signals gtk_signals;

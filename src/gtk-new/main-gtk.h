@@ -26,8 +26,8 @@
 #include "gtk-common.h"
 
 // Include our standard gtk calls, and all the key symbols needed.
-#include <gtk/gtk.h>
-#include <gdk/gdkkeysyms.h>
+//#include <gtk/gtk.h>
+//#include <gdk/gdkkeysyms.h>
 
 extern gboolean quit_gtk(GtkWidget *widget, GdkEvent *event, gpointer user_data);
 extern errr CheckEvent(bool wait);
