@@ -49,7 +49,7 @@ cairo_matrix_t cairo_font_scaling(cairo_surface_t *surface, double font_w, doubl
 	return(m);
 }
 
-void init_graf(int g)
+void set_graphics(int g)
 {
 	char buf[1024];
 	term_data* td = &term_window[0];
@@ -116,7 +116,7 @@ void init_graf(int g)
 	
 	g_assert(graphical_tiles != NULL);
 	g_assert(tile_pattern != NULL);
-	scale = cairo_font_scaling(td->surface, td->font_w, td->font_h);
+	scale = cairo_font_scaling(td->surface, td->font.w, td->font.h);
 	force_redraw();
 }
 
@@ -158,22 +158,22 @@ void get_font_size(term_data* td)
 	temp = pango_cairo_create_layout(cr);
 	
 	/* Draw an @, and measure it */
-	temp_font = pango_font_description_from_string(td->font);
+	temp_font = pango_font_description_from_string(td->font.name);
 	pango_layout_set_font_description(temp, temp_font);
 	pango_layout_set_text(temp, "@", 1);
 	pango_cairo_show_layout(cr, temp);
 	pango_layout_get_pixel_extents(temp, NULL, &r);
 	
-	td->font_w = r.width;
-	td->font_h = r.height;
+	td->font.w = r.width;
+	td->font.h = r.height;
 	
 	pango_font_description_free(temp_font);
 	cairo_destroy(cr);
 	g_object_unref(temp);
 	
-	td->window_w = td->font_w * 80;
-	td->window_h = td->font_h * 24;
-	//printf("font width == %d, height = %d.\n", td->font_w, td->font_h);
+	td->win.w = td->font.w * 80;
+	td->win.h = td->font.h * 24;
+	//printf("font width == %d, height = %d.\n", td->font.w, td->font.h);
 }
 
 void draw_tile(term_data* td, int x, int y, int tx, int ty)
@@ -181,9 +181,9 @@ void draw_tile(term_data* td, int x, int y, int tx, int ty)
 	cairo_t* cr;
 	cr = cairo_create(td->surface);
 	
-	cairo_rectangle(cr, x * td->font_w, y * td->font_h, td->font_w, td->font_h);
+	cairo_rectangle(cr, x * td->font.w, y * td->font.h, td->font.w, td->font.h);
 	cairo_set_source (cr, tile_pattern);
-	cairo_surface_set_device_offset(graphical_tiles, tx - (x * td->font_w), ty - (y * td->font_h));
+	cairo_surface_set_device_offset(graphical_tiles, tx - (x * td->font.w), ty - (y * td->font.h));
 	
 	// Use transparency.
 	cairo_set_operator(cr, CAIRO_OPERATOR_ADD);
@@ -206,24 +206,24 @@ void draw_tiles(term_data* td, int x, int y, int n, const byte *ap, const char *
 	
 	cr = cairo_create(td->surface);
 	
-	cairo_rectangle(cr, x * td->font_w, y * td->font_h, td->font_w * n, td->font_h);
+	cairo_rectangle(cr, x * td->font.w, y * td->font.h, td->font.w * n, td->font.h);
 	set_foreground_color(cr, TERM_DARK);
 	cairo_fill(cr);
 	
 	/* Get the current position, Minus cx, which changes for each iteration */
 	cx = 0;
-	cy = (y * td->font_h);
+	cy = (y * td->font.h);
 	
 	for (int i = 0; i < n; i++)
 	{
 		/* Increment x 1 step; use the font width because of equippy chars and the gap between 
    		 * the status bar and the map.
 		 */
-		cx += x * td->font_w;
+		cx += x * td->font.w;
 		
 		/* Get the terrain tile, scaled to the font size */
-		tx= (tcp[i] & 0x7F) * td->font_w;
-		ty = (tap[i] & 0x7F) * td->font_h;
+		tx= (tcp[i] & 0x7F) * td->font.w;
+		ty = (tap[i] & 0x7F) * td->font.h;
 		
 		draw_tile(td, x + i, y, tx, ty);
 	
@@ -231,8 +231,8 @@ void draw_tiles(term_data* td, int x, int y, int n, const byte *ap, const char *
 		if ((tap[i] == ap[i]) && (tcp[i] == cp[i])) continue;
 		
 		/* Get the foreground tile size, scaled to the font size */
-		tx = (cp[i] & 0x7F) * td->font_w;
-		ty = (ap[i] & 0x7F) * td->font_h;
+		tx = (cp[i] & 0x7F) * td->font.w;
+		ty = (ap[i] & 0x7F) * td->font.h;
 	
 		draw_tile(td, x + i, y, tx, ty);
 	}
@@ -245,7 +245,7 @@ void hilite_char(term_data* td, int x, int y, byte a)
 {
 	cairo_t* cr;
 	cr = cairo_create(td->surface);
-	cairo_rectangle(cr, x * td->font_w, y * td->font_h, td->font_w, td->font_h);
+	cairo_rectangle(cr, x * td->font.w, y * td->font.h, td->font.w, td->font.h);
 	set_foreground_color(cr, a);
 	cairo_set_operator(cr, CAIRO_OPERATOR_ADD);
 	cairo_fill(cr);
@@ -256,8 +256,8 @@ void clear_chars(term_data* td, int x, int y, int n)
 {
 	cairo_t* cr;
 	cr = cairo_create(td->surface);
-	cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
-	cairo_rectangle(cr, x * td->font_w, y * td->font_h, n * td->font_w, td->font_h);
+	set_foreground_color(cr, TERM_DARK);
+	cairo_rectangle(cr, x * td->font.w, y * td->font.h, n * td->font.w, td->font.h);
 	cairo_fill(cr);
 	cairo_destroy(cr);
 }
@@ -274,11 +274,11 @@ void write_chars(term_data* td, int x, int y, int n, byte a, const char* text)
 	set_foreground_color(cr, a);
 	
 	layout = pango_cairo_create_layout(cr);
-	font = pango_font_description_from_string(td->font);
+	font = pango_font_description_from_string(td->font.name);
 	pango_layout_set_font_description (layout, font);
 	pango_layout_set_text (layout, text, n);
 	
-	cairo_move_to(cr, x * td->font_w, y * td->font_h);
+	cairo_move_to(cr, x * td->font.w, y * td->font.h);
 	pango_cairo_show_layout (cr, layout);
 
 	g_object_unref (layout);
@@ -290,34 +290,15 @@ void clear_surface(term_data* td)
 {
 	cairo_t* cr;
 	cr = cairo_create(td->surface);
-	cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
+	set_foreground_color(cr, TERM_DARK);
 	cairo_paint(cr);
 	cairo_destroy(cr);
 }
 
 void create_surface(term_data* td)
 {
-	cairo_t* cr;
-	td->surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, td->window_w, td->window_h);
-	cr = cairo_create(td->surface);
-	cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
-	cairo_paint(cr);
-	cairo_destroy(cr);
+	td->surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, td->win.w, td->win.h);
+	clear_surface(td);
 }
-
-void create_drawing_area(term_data* td)
-{
-	GtkWidget* widget;
-	
-	widget = gtk_drawing_area_new();
-	td->drawing = GTK_DRAWING_AREA(widget);
-	
-	gtk_widget_set_size_request(GTK_WIDGET(td->drawing), td->window_w, td->window_h);
-	gtk_widget_add_events(GTK_WIDGET(td->drawing), GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
-	
-	g_signal_connect(G_OBJECT (td->drawing), "expose_event", G_CALLBACK (expose_drawing), td->surface);
-	g_signal_connect(td->drawing, "button_release_event",  G_CALLBACK (on_mouse_click), NULL);
-}
-
 
 #endif

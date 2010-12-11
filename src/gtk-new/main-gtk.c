@@ -23,7 +23,7 @@
 #include "main-gtk.h"
 #include "main.h"
 #include "gtk-term.h"
-#include "gtk-drawing.h"
+#include "gtk-windows.h"
 
 #include "textui.h"
 #include "game-event.h"
@@ -31,10 +31,10 @@
 #include "files.h"
 #include "init.h"
 
+extern void set_graphics(int g);
+
 bool game_in_progress = false;
 
-extern void create_window(term_data *td);
-extern void delete_window(term_data *td);
 void pick_font();
 /*
  * Help message.
@@ -44,181 +44,15 @@ void pick_font();
 const char help_gtk[] = "Describe XXX, subopts -describe suboptions here";
 
 
-gboolean change_graphics(GtkWidget *widget, int user_data)
-{
-	printf("Change graphics to %d\n", user_data);
-	init_graf(user_data);
-	return true;
-}
-
-gboolean toggle_window(GtkWidget *widget, gchar* user_data)
-{
-	int i = -1;
-	term_data* td;
-	
-	sscanf((char*)user_data, "Window %d", &i);
-	td = &term_window[i];
-	
-	td->visible = gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(widget));
-	if (td != 0)
-	{
-		if (td->visible)
-			create_window(td);
-		else
-			delete_window(td);
-	}
-	return false;
-}
-
-GtkWidget* create_file_menu()
-{
-	GtkWidget* file_menu, *file_item, *new_item, *open_item, *save_item, *quit_item;
-		
-	file_menu = gtk_menu_new();
-	file_item = gtk_menu_item_new_with_label("File");
-	
-	new_item = gtk_menu_item_new_with_label("New");
-	gtk_menu_append(GTK_MENU(file_menu), new_item);
-	g_signal_connect(GTK_OBJECT(new_item), "activate", G_CALLBACK(new_gtk_game), NULL);
-	
-	open_item = gtk_menu_item_new_with_label("Open");
-	gtk_menu_append(GTK_MENU(file_menu), open_item);
-	g_signal_connect(GTK_OBJECT(open_item), "activate", G_CALLBACK(open_gtk_game), NULL);
-	
-	save_item = gtk_menu_item_new_with_label("Save");
-	gtk_menu_append(GTK_MENU(file_menu), save_item);
-	g_signal_connect(GTK_OBJECT(save_item), "activate", G_CALLBACK(save_gtk_game), NULL);
-	
-	quit_item = gtk_menu_item_new_with_label("Quit");
-	gtk_menu_append(GTK_MENU(file_menu), quit_item);
-	g_signal_connect(GTK_OBJECT(quit_item), "activate", G_CALLBACK(quit_gtk), NULL);
-	
-	gtk_menu_item_set_submenu( GTK_MENU_ITEM(file_item), file_menu);
-	return file_item;
-}
-
-GtkWidget* create_window_menu()
-{
-	GtkWidget* window_menu, *window_item;
-	//GtkWidget *font_item;
-	
-	window_menu = gtk_menu_new();
-	window_item = gtk_menu_item_new_with_label("Window");
-	
-	for(int i = 1; i < MAX_GTK_NEW_TERM; i++)
-	{
-		char title[10];
-		term_data* td =  &term_window[i];
-			
-		sprintf (title, "Window %d", i);
-		 td->menu_item = gtk_check_menu_item_new_with_label(title);
-		gtk_menu_append(GTK_MENU(window_menu),  td->menu_item);
-		gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(td->menu_item), td->visible);
-		g_signal_connect(GTK_OBJECT( td->menu_item), "activate", G_CALLBACK(toggle_window), (gpointer) g_strdup ((gchar*)&title));
-	}
-	
-	/*font_item = gtk_menu_item_new_with_label("Pick Font...");
-	gtk_menu_append(GTK_MENU(window_menu), font_item);
-	g_signal_connect(GTK_OBJECT(font_item), "activate", G_CALLBACK(pick_font), NULL);*/
-	
-	gtk_menu_item_set_submenu( GTK_MENU_ITEM(window_item), window_menu);
-	
-	return window_item;
-	
-}
-
-GtkWidget* create_graphics_menu()
-{
-	GtkWidget* graf_menu, *graf_item, *graf1_item, *graf2_item, *graf3_item, *graf4_item, *graf5_item;
-	
-	graf_menu = gtk_menu_new();
-	graf_item = gtk_menu_item_new_with_label("Graphics");
-	
-	graf1_item = gtk_menu_item_new_with_label("No Graphics");
-	gtk_menu_append(GTK_MENU(graf_menu), graf1_item);
-	g_signal_connect(GTK_OBJECT(graf1_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_NONE);
-	
-	graf2_item = gtk_menu_item_new_with_label("Original");
-	gtk_menu_append(GTK_MENU(graf_menu), graf2_item);
-	g_signal_connect(GTK_OBJECT(graf2_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_ORIGINAL);
-	
-	graf3_item = gtk_menu_item_new_with_label("Adam Bolt");
-	gtk_menu_append(GTK_MENU(graf_menu), graf3_item);
-	g_signal_connect(GTK_OBJECT(graf3_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_ADAM_BOLT);
-	
-	graf4_item = gtk_menu_item_new_with_label("David Gervais");
-	gtk_menu_append(GTK_MENU(graf_menu), graf4_item);
-	g_signal_connect(GTK_OBJECT(graf4_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_DAVID_GERVAIS);
-	
-	graf5_item = gtk_menu_item_new_with_label("Nomad");
-	gtk_menu_append(GTK_MENU(graf_menu), graf5_item);
-	g_signal_connect(GTK_OBJECT(graf5_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_NOMAD);
-	
-	gtk_menu_item_set_submenu( GTK_MENU_ITEM(graf_item), graf_menu);
-	return graf_item;
-}
 /*** Function hooks needed by "Term" ***/
-
-GtkWidget* create_menus()
-{
-	GtkWidget* menubar;
-	
-	menubar = gtk_menu_bar_new();
-	
-	gtk_menu_bar_append( GTK_MENU_BAR (menubar), create_file_menu());
-	gtk_menu_bar_append( GTK_MENU_BAR (menubar), create_window_menu());
-	gtk_menu_bar_append( GTK_MENU_BAR (menubar), create_graphics_menu());
-	return menubar;
-}
-
-void create_window(term_data *td)
-{
-	GtkWidget* widget, *box;
-	
-	widget = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-	td->window = GTK_WINDOW(widget);
-	box = gtk_vbox_new(false, 0);
-	gtk_container_add(GTK_CONTAINER (td->window), GTK_WIDGET(box));
-	
-	if (td->id == 0)
-	{
-		td->visible = true;
-		gtk_window_set_title(td->window, "Angband");
-		g_signal_connect(td->window, "delete-event", G_CALLBACK (quit_gtk), NULL);
-		g_signal_connect(td->window, "destroy",  G_CALLBACK (quit_gtk), NULL);
-		gtk_container_add(GTK_CONTAINER (box), GTK_WIDGET(create_menus()));
-	}
-	else
-	{
-		char title[10];
-		strnfmt(title, sizeof(title), "Term %d", td->id);
-		gtk_window_set_title(td->window, title);
-		g_signal_connect(td->window, "delete-event", G_CALLBACK (close_window), NULL);
-		g_signal_connect(td->window, "destroy",  G_CALLBACK (close_window), NULL);
-	}
-	
-	g_signal_connect(td->window, "key_press_event",  G_CALLBACK (keypress_event_handler), NULL);
-	gtk_window_set_resizable(td->window, false);
-	create_drawing_area(td);
-	gtk_container_add(GTK_CONTAINER (box),GTK_WIDGET(td->drawing));
-	
-	gtk_widget_show_all(GTK_WIDGET(td->window));
-}
-
-void delete_window(term_data *td)
-{
-	td->visible = false;
-	gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(td->menu_item), td->visible);
-	gtk_widget_destroy(GTK_WIDGET(td->window));
-}
 
 gboolean on_mouse_click(GtkWidget *widget, GdkEventButton *event, gpointer user_data)
 {
 	term_data *td = (term_data*)(Term->data);
 	
 	/* Where is the mouse? */
-	int x = event->x / td->font_w;
-	int y = event->y / td->font_h;
+	int x = event->x / td->font.w;
+	int y = event->y / td->font.h;
 	int z = event->button;
 	
 	Term_mousepress(x, y, z);
@@ -350,7 +184,7 @@ void pick_font()
 	term_data* td = &term_window[0];
 	
 	dialog = gtk_font_selection_dialog_new("Pick a font, preferably fixed-width.");
-	gtk_font_selection_dialog_set_font_name(GTK_FONT_SELECTION_DIALOG(dialog), td->font);
+	gtk_font_selection_dialog_set_font_name(GTK_FONT_SELECTION_DIALOG(dialog), td->font.name);
 	gtk_font_selection_dialog_set_preview_text(GTK_FONT_SELECTION_DIALOG(dialog), "The Boil-covered wretch drools on you!");
 	
 	if (gtk_dialog_run (GTK_DIALOG (dialog)) == GTK_RESPONSE_OK)
@@ -359,7 +193,7 @@ void pick_font()
 		for(int i = 0; i < MAX_GTK_NEW_TERM; i++)
 		{
 			td = &term_window[i];
-			//my_strcpy(td->font, fontname, sizeof(td->font));
+			//my_strcpy(td->font.name fontname, sizeof(td->font.name));
 		}
 	  }
 	  
@@ -537,14 +371,14 @@ static void handle_map(game_event_type type, game_event_data *data, void *user)
 	if (use_graphics != arg_graphics)
 	{
 		use_graphics = arg_graphics;
-		init_graf(arg_graphics);
+		set_graphics(arg_graphics);
 	}
 }
 
 
 static void handle_game(game_event_type type, game_event_data *data, void *user)
 {
-	init_graf(arg_graphics);
+	set_graphics(arg_graphics);
 }
 
 void init_handlers()

@@ -16,17 +16,14 @@
  *    are included in all such copies.  Other copyrights may also apply.
  */
  
+#pragma once
+
 #include "angband.h"
 
 #ifdef USE_GTK_NEW 
 
-#ifndef GTK_DRAWING_INCLUDE
-#define GTK_DRAWING_INCLUDE
+#include "gtk-common.h"
 
-#include "gtk-term.h"
-extern int window_height;
-
-extern void create_drawing_area(term_data* td);
 extern void create_surface(term_data* td);
 extern void resize_surface(term_data* td);
 extern void get_font_size(term_data* td);
@@ -37,7 +34,8 @@ extern void clear_surface(term_data* td);
 extern void clear_chars(term_data* td, int x, int y, int n);
 extern void term_redraw(term_data* td);
 extern void hilite_char(term_data* td, int x, int y, byte a);
+extern gboolean expose_drawing(GtkWidget *widget, GdkEventExpose *event, cairo_surface_t* surface);
 
-extern void init_graf(int g);
-#endif
+extern void set_graphics(int g);
+
 #endif

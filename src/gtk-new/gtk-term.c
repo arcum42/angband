@@ -36,6 +36,11 @@ static unsigned int graphics_table[32] = {
 };
 
 /*
+ * An array of "term_data" structures, one for each "sub-window"
+ */
+term_data term_window[MAX_GTK_NEW_TERM];
+
+/*
  * Hack -- redraw a term_data.
  * Note that "Term_redraw()" calls "TERM_XTRA_CLEAR"
  */
@@ -80,11 +85,7 @@ static void Term_init_gtk(term *t)
 	
 	get_font_size(td);
 	create_surface(td);
-	
-	if ((td->visible) || (td->id == 0))
-	{
-		create_window(td);
-	}
+	create_window(td);
 }
 
 /*
@@ -122,8 +123,6 @@ static  errr Term_clear_gtk()
  */
 static errr Term_xtra_gtk(int n, int v)
 {
-	//term_data *td = (term_data*)(Term->data);
-	
 	/* Handle a subset of the legal requests */
 	switch (n)
 	{
@@ -334,7 +333,7 @@ void term_data_link(int i)
 	
 	/* Remember where we came from */
 	t->data = td;
-	my_strcpy(td->font, "Monospace 10", 13);
+	my_strcpy(td->font.name, "Monospace 10", 13);
 
 	/* Activate it */
 	Term_activate(t);

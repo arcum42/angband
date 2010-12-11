@@ -1,6 +1,6 @@
 /*
- * File: gtk-term.h
- * Purpose: Header file for the term code of the GTK port for Angband
+ * File: main-windows.h
+ * Purpose: Header file for the windows code for the GTK port for Angband
  *
  * Copyright (c) 2000-2010 Shanoah Alkire
  *
@@ -15,26 +15,21 @@
  *    and not for profit purposes provided that this copyright and statement
  *    are included in all such copies.  Other copyrights may also apply.
  */
- 
+
 #pragma once
 
 #include "angband.h"
 
 #ifdef USE_GTK_NEW
 
-#ifndef GTK_TERM_INCLUDE
-#define GTK_TERM_INCLUDE
-
 #include "gtk-common.h"
-#include "main-gtk.h"
 
-extern void term_data_link(int i);
-extern void force_redraw();
-extern void term_data_redraw(term_data *td);
-extern void set_term_visible(term_data* td, bool visible);
+extern gboolean close_window(GtkWidget *widget, GdkEvent *event, gpointer user_data);
+extern gboolean hide_window(GtkWidget *widget, GdkEvent *event, gpointer user_data);
+extern gboolean show_window(GtkWidget *widget, GdkEvent *event, gpointer user_data);
 
-extern void create_window(term_data *td);
-extern void delete_window(term_data *td);
+extern gboolean expose_drawing(GtkWidget *widget, GdkEventExpose *event, cairo_surface_t* surface);
 
-#endif
+extern GtkWidget* create_menus();
+
 #endif

@@ -1,6 +1,6 @@
 /*
- * File: gtk-term.h
- * Purpose: Header file for the term code of the GTK port for Angband
+ * File: main-menus.h
+ * Purpose: Header file for the menu code for the GTK port for Angband
  *
  * Copyright (c) 2000-2010 Shanoah Alkire
  *
@@ -15,26 +15,13 @@
  *    and not for profit purposes provided that this copyright and statement
  *    are included in all such copies.  Other copyrights may also apply.
  */
- 
+
 #pragma once
 
 #include "angband.h"
 
 #ifdef USE_GTK_NEW
 
-#ifndef GTK_TERM_INCLUDE
-#define GTK_TERM_INCLUDE
-
 #include "gtk-common.h"
-#include "main-gtk.h"
 
-extern void term_data_link(int i);
-extern void force_redraw();
-extern void term_data_redraw(term_data *td);
-extern void set_term_visible(term_data* td, bool visible);
-
-extern void create_window(term_data *td);
-extern void delete_window(term_data *td);
-
-#endif
 #endif
