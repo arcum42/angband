@@ -297,6 +297,7 @@ void clear_surface(term_data* td)
 
 void create_surface(term_data* td)
 {
+	if (td->surface != NULL) cairo_surface_destroy(td->surface);
 	td->surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, td->win.w, td->win.h);
 	clear_surface(td);
 }

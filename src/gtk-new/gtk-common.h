@@ -32,6 +32,9 @@
 // Include our standard gtk calls, and all the key symbols needed.
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
+#if ((GTK_MAJOR_VERSION >= 2) && (GTK_MINOR_VERSION >= 22))
+#include <gdk/gdkkeysyms-compat.h>
+#endif
 
 // Include Cairo and Pango.
 #include "cairo.h"

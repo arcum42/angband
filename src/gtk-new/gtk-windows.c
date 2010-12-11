@@ -38,7 +38,6 @@ void set_term_visible(term_data* td, bool visible)
 	if (visible)
 	{
 		gtk_widget_show_all(GTK_WIDGET(td->window));
-		gtk_window_move(GTK_WINDOW(td->window), td->win.x, td->win.y);
 	}
 	else
 		gtk_widget_hide_all(GTK_WIDGET(td->window));	
@@ -113,7 +112,6 @@ void create_window(term_data *td)
 	gtk_container_add(GTK_CONTAINER (td->box),GTK_WIDGET(td->drawing));
 
 	set_term_visible(td, td->visible);
-	//gtk_window_move(GTK_WINDOW(td->window), td->win.x, td->win.y);
 }
 
 void delete_window(term_data *td)
@@ -128,13 +126,12 @@ void resize_window(term_data *td)
 	save_term_position(td);
 	gtk_widget_destroy(GTK_WIDGET(td->drawing));
 	get_font_size(td);
-	create_surface(td); // fix
+	create_surface(td); 
 	create_drawing_area(td);
 	gtk_container_add(GTK_CONTAINER (td->box),GTK_WIDGET(td->drawing));
 	gtk_widget_hide_all(GTK_WIDGET(td->window));
 	gtk_widget_show_all(GTK_WIDGET(td->window));
 	term_data_redraw(td);
-	//gtk_window_move(GTK_WINDOW(td->window), td->win.x, td->win.y);
 }
 
 #endif
