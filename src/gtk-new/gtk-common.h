@@ -75,6 +75,7 @@ struct term_data
 {
 	term t;
 	uint id;
+	uint cols, rows;
 	
 	bool visible;
 	font_info font;
@@ -85,6 +86,7 @@ struct term_data
 	cairo_surface_t* surface;
 	
 	GtkWindow* window;
+	GtkWidget* box;
 	GtkDrawingArea* drawing;
 	GtkWidget* menu_item;
 	GtkWidget* toolbar;

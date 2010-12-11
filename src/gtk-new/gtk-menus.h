@@ -24,4 +24,6 @@
 
 #include "gtk-common.h"
 
+extern void pick_font();
+
 #endif

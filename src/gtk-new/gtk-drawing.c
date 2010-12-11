@@ -171,9 +171,9 @@ void get_font_size(term_data* td)
 	cairo_destroy(cr);
 	g_object_unref(temp);
 	
-	td->win.w = td->font.w * 80;
-	td->win.h = td->font.h * 24;
-	//printf("font width == %d, height = %d.\n", td->font.w, td->font.h);
+	td->win.w = td->font.w * td->cols;
+	td->win.h = td->font.h * td->rows;
+	printf("font width == %d, height = %d.\n", td->font.w, td->font.h);
 }
 
 void draw_tile(term_data* td, int x, int y, int tx, int ty)

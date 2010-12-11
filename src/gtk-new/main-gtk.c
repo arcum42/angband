@@ -35,7 +35,6 @@ extern void set_graphics(int g);
 
 bool game_in_progress = false;
 
-void pick_font();
 /*
  * Help message.
  *   1st line = max 68 chars.
@@ -177,6 +176,7 @@ gboolean keypress_event_handler(GtkWidget *widget, GdkEventKey *event, gpointer 
 	return true;
 }
 
+extern void resize_window(term_data *td);
 void pick_font()
 {
 	char *fontname;
@@ -193,11 +193,12 @@ void pick_font()
 		for(int i = 0; i < MAX_GTK_NEW_TERM; i++)
 		{
 			td = &term_window[i];
-			//my_strcpy(td->font.name fontname, sizeof(td->font.name));
+			my_strcpy(td->font.name, fontname, sizeof(td->font.name));
 		}
 	  }
 	  
 	gtk_widget_destroy (dialog);
+	resize_window(&term_window[0]);
 	
 }
 

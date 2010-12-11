@@ -63,6 +63,7 @@ void create_drawing_area(term_data* td)
 	widget = gtk_drawing_area_new();
 	td->drawing = GTK_DRAWING_AREA(widget);
 	
+	printf("Requesting %d by %d.\n", td->win.w, td->win.h);
 	gtk_widget_set_size_request(GTK_WIDGET(td->drawing), td->win.w, td->win.h);
 	gtk_widget_add_events(GTK_WIDGET(td->drawing), GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK);
 	
@@ -72,19 +73,19 @@ void create_drawing_area(term_data* td)
 
 void create_window(term_data *td)
 {
-	GtkWidget* widget, *box;
+	GtkWidget* widget;
 	
 	widget = gtk_window_new(GTK_WINDOW_TOPLEVEL);
 	td->window = GTK_WINDOW(widget);
-	box = gtk_vbox_new(false, 0);
-	gtk_container_add(GTK_CONTAINER (td->window), GTK_WIDGET(box));
+	td->box = gtk_vbox_new(false, 0);
+	gtk_container_add(GTK_CONTAINER (td->window), GTK_WIDGET(td->box));
 	
 	if (td->id == 0)
 	{
 		td->visible = true;
 		gtk_window_set_title(td->window, "Angband");
 		td->signals.delete_evt = g_signal_connect(td->window, "delete-event", G_CALLBACK (quit_gtk), NULL);
-		gtk_container_add(GTK_CONTAINER (box), GTK_WIDGET(create_menus()));
+		gtk_container_add(GTK_CONTAINER (td->box), GTK_WIDGET(create_menus()));
 	}
 	else
 	{
@@ -97,7 +98,7 @@ void create_window(term_data *td)
 	td->signals.key_evt = g_signal_connect(td->window, "key_press_event",  G_CALLBACK (keypress_event_handler), NULL);
 	gtk_window_set_resizable(td->window, false);
 	create_drawing_area(td);
-	gtk_container_add(GTK_CONTAINER (box),GTK_WIDGET(td->drawing));
+	gtk_container_add(GTK_CONTAINER (td->box),GTK_WIDGET(td->drawing));
 
 	set_term_visible(td, td->visible);
 }
@@ -107,6 +108,18 @@ void delete_window(term_data *td)
 	td->visible = false;
 	gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(td->menu_item), td->visible);
 	gtk_widget_destroy(GTK_WIDGET(td->window));
+}
+
+void resize_window(term_data *td)
+{
+	gtk_widget_destroy(GTK_WIDGET(td->drawing));
+	get_font_size(td);
+	create_surface(td); // fix
+	create_drawing_area(td);
+	gtk_container_add(GTK_CONTAINER (td->box),GTK_WIDGET(td->drawing));
+	gtk_widget_hide_all(GTK_WIDGET(td->window));
+	gtk_widget_show_all(GTK_WIDGET(td->window));
+	term_data_redraw(td);
 }
 
 #endif

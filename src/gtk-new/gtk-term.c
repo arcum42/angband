@@ -51,8 +51,7 @@ void term_data_redraw(term_data *td)
 	/* Activate the term passed to it, not term 0! */
 	Term_activate(&td->t);
 
-	//Term_resize(td->cols, td->rows);
-	Term_resize(80,24);
+	Term_resize(td->cols, td->rows);
 	Term_redraw();
 	Term_fresh();
 	
@@ -308,7 +307,10 @@ void term_data_link(int i)
 	}
 	
 	/* Initialize the term */
-	term_init(t, 80, 24, 256);
+	td->cols = 80;
+	td->rows = 24;
+	
+	term_init(t, td->cols, td->rows, 256);
 
 	/* Use a "soft" cursor */
 	t->soft_cursor = true;

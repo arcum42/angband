@@ -84,7 +84,7 @@ GtkWidget* create_file_menu()
 GtkWidget* create_window_menu()
 {
 	GtkWidget* window_menu, *window_item;
-	//GtkWidget *font_item;
+	GtkWidget *font_item;
 	
 	window_menu = gtk_menu_new();
 	window_item = gtk_menu_item_new_with_label("Window");
@@ -101,9 +101,9 @@ GtkWidget* create_window_menu()
 		g_signal_connect(GTK_OBJECT( td->menu_item), "activate", G_CALLBACK(toggle_window), (gpointer) g_strdup ((gchar*)&title));
 	}
 	
-	/*font_item = gtk_menu_item_new_with_label("Pick Font...");
+	font_item = gtk_menu_item_new_with_label("Pick Font...");
 	gtk_menu_append(GTK_MENU(window_menu), font_item);
-	g_signal_connect(GTK_OBJECT(font_item), "activate", G_CALLBACK(pick_font), NULL);*/
+	g_signal_connect(GTK_OBJECT(font_item), "activate", G_CALLBACK(pick_font), NULL);
 	
 	gtk_menu_item_set_submenu( GTK_MENU_ITEM(window_item), window_menu);
 	
