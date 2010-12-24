@@ -40,9 +40,9 @@
 #define SAVEFILE_NAME  "VNLA"
 
 #ifdef BUILD_ID
-# define VERSION_STRING "3.1.2 (" BUILD_ID ")"
+# define VERSION_STRING "3.2.0 (" BUILD_ID ")"
 #else
-# define VERSION_STRING "3.1.2"
+# define VERSION_STRING "3.2.0"
 #endif
 
 
@@ -139,7 +139,7 @@
  * Maximum amount of starting equipment, and starting gold
  */
 #define MAX_START_ITEMS	5
-#define STARTING_GOLD 700
+#define STARTING_GOLD 600
 
 /*
  * Number of tval/min-sval/max-sval slots per ego_item
@@ -1142,6 +1142,7 @@ enum
 #define IDENT_NAME	0x0400	/* Know the name of ego or artifact if there is one */
 #define IDENT_FIRED	0x0800  /* Has been used as a missile */
 #define IDENT_NOTART 0x1000  /* Item is known not to be an artifact */
+#define IDENT_FAKE	0x2000  /* Item is a fake, for displaying knowledge */
 /* ... */
 
 
@@ -1807,3 +1808,11 @@ enum
 
 /* Whether to learn egos and flavors with less than complete information */
 #define EASY_LEARN 1
+
+/* MSVC doesn't have va_copy (which is C99) or an alternative, so we'll just
+ * copy the SRC pointer. In other cases we'll use va_copy() as we should. */
+#ifdef _MSC_VER
+#define VA_COPY(DST, SRC) (DST) = (SRC)
+#else
+#define VA_COPY(DST, SRC) va_copy(DST, SRC)
+#endif

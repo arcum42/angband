@@ -107,7 +107,9 @@ static bool option_toggle_handle(menu_type *m, const ui_event_data *event,
 			option_set(option_name(oid), FALSE);
 			next = TRUE;
 		} else if (event->key == '?') {
+			screen_save();
 			show_file(format("option.txt#%s", option_name(oid)), NULL, 0, 0);
+			screen_load();
 		} else {
 			return FALSE;
 		}
@@ -1104,7 +1106,7 @@ static void do_cmd_pref_file_hack(long row)
 	if (askfor_aux(ftmp, sizeof ftmp, NULL))
 	{
 		/* Process the given filename */
-		if (process_pref_file(ftmp, FALSE))
+		if (process_pref_file(ftmp, FALSE) == FALSE)
 		{
 			/* Mention failure */
 			prt("", 0, 0);

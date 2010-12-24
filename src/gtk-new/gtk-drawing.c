@@ -43,7 +43,7 @@ cairo_matrix_t cairo_font_scaling(cairo_surface_t *surface, double font_w, doubl
 	sx = (tile_w)/(font_w);
 	sy = (tile_h)/(font_h);
 	cairo_matrix_scale(&m, sx, sy);
-	
+//	printf("%f/%f:%f/%f.\n", tile_w, font_w, tile_h, font_h);
 	cairo_destroy(cr);
 	
 	return(m);
@@ -173,7 +173,7 @@ void get_font_size(term_data* td)
 	
 	td->win.w = td->font.w * td->cols;
 	td->win.h = td->font.h * td->rows;
-	printf("font width == %d, height = %d.\n", td->font.w, td->font.h);
+//	printf("font width == %d, height = %d.\n", td->font.w, td->font.h);
 }
 
 void draw_tile(term_data* td, int x, int y, int tx, int ty)
@@ -182,7 +182,7 @@ void draw_tile(term_data* td, int x, int y, int tx, int ty)
 	cr = cairo_create(td->surface);
 	
 	cairo_rectangle(cr, x * td->font.w, y * td->font.h, td->font.w, td->font.h);
-	cairo_set_source (cr, tile_pattern);
+	cairo_set_source(cr, tile_pattern);
 	cairo_surface_set_device_offset(graphical_tiles, tx - (x * td->font.w), ty - (y * td->font.h));
 	
 	// Use transparency.

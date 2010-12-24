@@ -256,6 +256,7 @@ char *latin1_to_utf8(int n, cptr s)
  */
 static errr Term_text_gtk(int x, int y, int n, byte a, const char *cp)
 {
+//	printf("<-- '%s.\n", cp);
 	term_data *td = (term_data*)(Term->data);
 	
 	char *s2;

@@ -133,6 +133,7 @@ void resize_window(term_data *td)
 	gtk_container_add(GTK_CONTAINER (td->box),GTK_WIDGET(td->drawing));
 	gtk_widget_hide_all(GTK_WIDGET(td->window));
 	gtk_widget_show_all(GTK_WIDGET(td->window));
+	set_graphics(arg_graphics);
 	term_data_redraw(td);
 }
 

@@ -13,3 +13,4 @@ Currently I'm sticking with C, but if C++ looks cleaner, I might use it. If that
 
 To test the copy of the gtk port I'm recoding, use --enable-gtk-new when configuring angband.
 --Shanoah Alkire
+arcum42@gmail.com

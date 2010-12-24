@@ -555,6 +555,10 @@ static enum parser_error parse_a_n(struct parser *p) {
 	parser_setpriv(p, a);
 	a->aidx = idx;
 	a->name = string_make(name);
+
+	/* Ignore all elements */
+	flags_set(a->flags, OF_SIZE, OF_IGNORE_MASK, FLAG_END);
+
 	return PARSE_ERROR_NONE;
 }
 
@@ -3601,29 +3605,22 @@ bool init_angband(void)
 	/* Ask for a "command" until we get one we like. */
 	while (1)
 	{
-		int errr = 0;
 		game_command *command_req;
+		int failed = cmd_get(CMD_INIT, &command_req, TRUE);
 
-		errr = cmd_get(CMD_INIT, &command_req, TRUE);
-		
-		if (!errr) // if we were able to get a command, do so.
+		if (failed)
+			continue;
+		else if (command_req->command == CMD_QUIT)
+			quit(NULL);
+		else if (command_req->command == CMD_NEWGAME)
 		{
-			if (command_req->command == CMD_QUIT)
-			{
-				quit(NULL);
-			}
-			else if (command_req->command == CMD_NEWGAME)
-			{
-				event_signal(EVENT_LEAVE_INIT);
-				return TRUE;
-			}
-			else if (command_req->command == CMD_LOADFILE)
-			{
-				event_signal(EVENT_LEAVE_INIT);
-				/* In future we might want to pass back or set the savefile
-				   path here. */
-				return FALSE;
-			}
+			event_signal(EVENT_LEAVE_INIT);
+			return TRUE;
+		}
+		else if (command_req->command == CMD_LOADFILE)
+		{
+			event_signal(EVENT_LEAVE_INIT);
+			return FALSE;
 		}
 	}
 }

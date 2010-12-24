@@ -411,7 +411,7 @@ static void get_ahw(void)
 /*
  * Get the player's starting money
  */
-static void get_money(int stat_use[A_MAX])
+static void get_money(void)
 {
 /*	if (OPT(birth_money))
 	{
@@ -987,7 +987,6 @@ void player_generate(struct player *p, const player_sex *s,
 /* Reset everything back to how it would be on loading the game. */
 static void do_birth_reset(bool use_quickstart, birther *quickstart_prev)
 {
-	player_init(p_ptr);
 
 	/* If there's quickstart data, we use it to set default
 	   character choices. */
@@ -1077,6 +1076,7 @@ void player_birth(bool quickstart_allowed)
 
 		if (cmd->command == CMD_BIRTH_RESET)
 		{
+			player_init(p_ptr);
 			reset_stats(stats, points_spent, &points_left);
 			do_birth_reset(quickstart_allowed, &quickstart_prev);
 			rolled_stats = FALSE;
@@ -1150,9 +1150,6 @@ void player_birth(bool quickstart_allowed)
 
 			/* Get a new character */
 			get_stats(stats);
-
-			/* Roll for gold */
-			get_money(stats);
 
 			/* Update stats with bonuses, etc. */
 			get_bonuses();
@@ -1238,6 +1235,9 @@ void player_birth(bool quickstart_allowed)
 	message_add("====================", MSG_GENERIC);
 	message_add("  ", MSG_GENERIC);
 	message_add(" ", MSG_GENERIC);
+
+	/* Give the player some money */
+	get_money();
 
 	/* Outfit the player, if they can sell the stuff */
 	if (!OPT(adult_no_selling)) player_outfit(p_ptr);
