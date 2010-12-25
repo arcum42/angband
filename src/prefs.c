@@ -1237,7 +1237,6 @@ bool process_pref_file(const char *name, bool quiet)
 		path_build(buf, sizeof(buf), ANGBAND_DIR_USER, name);
 
 	f = file_open(buf, MODE_READ, -1);
-	printf("Opening '%s'.\n", buf);
 	if (!f)
 	{
 		if (!quiet)
