@@ -187,7 +187,7 @@ void pick_font()
 	gtk_font_selection_dialog_set_font_name(GTK_FONT_SELECTION_DIALOG(dialog), td->font.name);
 	gtk_font_selection_dialog_set_preview_text(GTK_FONT_SELECTION_DIALOG(dialog), "The Boil-covered wretch drools on you!");
 	
-	if (gtk_dialog_run (GTK_DIALOG (dialog)) == GTK_RESPONSE_OK)
+	if (gtk_dialog_run(GTK_DIALOG (dialog)) == GTK_RESPONSE_OK)
 	  {
 		 fontname = gtk_font_selection_dialog_get_font_name(GTK_FONT_SELECTION_DIALOG(dialog));
 		for(int i = 0; i < MAX_GTK_NEW_TERM; i++)

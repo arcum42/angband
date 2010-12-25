@@ -33,7 +33,7 @@ extern void draw_tiles(term_data* td, int x, int y, int n, const byte *ap, const
 extern void clear_surface(term_data* td);
 extern void clear_chars(term_data* td, int x, int y, int n);
 extern void term_redraw(term_data* td);
-extern void hilite_char(term_data* td, int x, int y, byte a);
+void color_chars(term_data* td, int x, int y, int n, byte a, bool trans);
 extern gboolean expose_drawing(GtkWidget *widget, GdkEventExpose *event, cairo_surface_t* surface);
 
 extern void set_graphics(int g);

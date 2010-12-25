@@ -28,7 +28,7 @@ extern void set_graphics(int g);
 
 gboolean change_graphics(GtkWidget *widget, int user_data)
 {
-	printf("Change graphics to %d\n", user_data);
+//	printf("Change graphics to %d\n", user_data);
 	set_graphics(user_data);
 	return true;
 }

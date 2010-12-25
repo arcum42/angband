@@ -30,25 +30,47 @@ cairo_pattern_t* tile_pattern;
 double tile_w, tile_h;
 cairo_matrix_t scale;
 
-cairo_matrix_t cairo_font_scaling(cairo_surface_t *surface, double font_w, double font_h)
+cairo_matrix_t cairo_font_scaling(term_data* td)
 {
 	cairo_t *cr;
 	cairo_matrix_t m;
 	double sx, sy;
 
-	cr = cairo_create(surface);
+	cr = cairo_create(td->surface);
 	
 	/* Get a matrix set up to scale the graphics. */
 	cairo_get_matrix(cr, &m);
-	sx = (tile_w)/(font_w);
-	sy = (tile_h)/(font_h);
+	sx = (tile_w)/(td->font.w);
+	sy = (tile_h)/(td->font.h);
 	cairo_matrix_scale(&m, sx, sy);
-//	printf("%f/%f:%f/%f.\n", tile_w, font_w, tile_h, font_h);
 	cairo_destroy(cr);
 	
 	return(m);
 }
 
+struct graphics_table
+{
+	int idx;
+	
+	char name[6];
+	char path[1024];
+	bool transparent;
+	int w;
+	int h;
+};
+
+typedef struct graphics_table graphics_table;
+
+graphics_table g_index[6] =
+{
+	{ GRAPHICS_NONE, "none", "", false, 0, 0 },
+	{ GRAPHICS_ORIGINAL, "old","8x8.png", false, 8, 8 },
+	{ GRAPHICS_ADAM_BOLT, "new", "16x16.png", true, 16, 16 },
+	{ GRAPHICS_DAVID_GERVAIS, "david", "32x32.png", false, 32, 32 },
+	{ GRAPHICS_PSEUDO, "none", "", false, 0, 0 },
+	{ GRAPHICS_NOMAD, "nomad", "8x16.png", true, 16, 16 }
+};
+	
 void set_graphics(int g)
 {
 	char buf[1024];
@@ -56,56 +78,12 @@ void set_graphics(int g)
 	
 	arg_graphics = g;
 	
-	switch(arg_graphics)
-	{
-		case GRAPHICS_NONE:
-		{
-			ANGBAND_GRAF = "none";
-			use_transparency = false;
-			tile_w = tile_h = 0;
-			printf("Graphics: None\n");
-			break;
-		}
-
-		case GRAPHICS_ORIGINAL:
-		{
-			ANGBAND_GRAF = "old";
-			path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_GRAF, "8x8.png");
-			use_transparency = false;
-			tile_w = tile_h = 8;
-			printf("Graphics: Original\n");
-			break;
-		}
-
-		case GRAPHICS_ADAM_BOLT:
-		{
-			ANGBAND_GRAF = "new";
-			path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_GRAF, "16x16.png");
-			use_transparency = true;
-			tile_w = tile_h = 16;
-			printf("Graphics: Adam Bolt\n");
-			break;
-		}
-
-		case GRAPHICS_DAVID_GERVAIS:
-		{
-			ANGBAND_GRAF = "david";
-			path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_GRAF, "32x32.png");
-			use_transparency = false;
-			tile_w = tile_h = 32;
-			printf("Graphics: David Gervais\n");
-			break;
-		}
-		case GRAPHICS_NOMAD:	
-		{
-			ANGBAND_GRAF = "nomad";
-			path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_GRAF, "8x16.png");
-			use_transparency = true;
-			tile_w = tile_h = 16;
-			printf("Graphics: Nomad\n");
-			break;
-		}
-	}
+	ANGBAND_GRAF = g_index[g].name;
+	if ((g != GRAPHICS_NONE) && (g != GRAPHICS_PSEUDO)) path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_GRAF, g_index[g].path);
+	use_transparency = g_index[g].transparent;
+	tile_w = g_index[g].w;
+	tile_h = g_index[g].h;
+	printf("Graphics: '%s'.\n", ANGBAND_GRAF);
 
 	/* Free up old graphics */
 	if (graphical_tiles != NULL) cairo_surface_destroy(graphical_tiles);
@@ -116,7 +94,8 @@ void set_graphics(int g)
 	
 	g_assert(graphical_tiles != NULL);
 	g_assert(tile_pattern != NULL);
-	scale = cairo_font_scaling(td->surface, td->font.w, td->font.h);
+	scale = cairo_font_scaling(td);
+	cairo_pattern_set_matrix(tile_pattern, &scale);
 	force_redraw();
 }
 
@@ -176,82 +155,6 @@ void get_font_size(term_data* td)
 //	printf("font width == %d, height = %d.\n", td->font.w, td->font.h);
 }
 
-void draw_tile(term_data* td, int x, int y, int tx, int ty)
-{
-	cairo_t* cr;
-	cr = cairo_create(td->surface);
-	
-	cairo_rectangle(cr, x * td->font.w, y * td->font.h, td->font.w, td->font.h);
-	cairo_set_source(cr, tile_pattern);
-	cairo_surface_set_device_offset(graphical_tiles, tx - (x * td->font.w), ty - (y * td->font.h));
-	
-	// Use transparency.
-	cairo_set_operator(cr, CAIRO_OPERATOR_ADD);
-	
-	/* Use the matrix with our pattern */
-	cairo_pattern_set_matrix(tile_pattern, &scale);
-	
-	/* Draw it */
-	cairo_fill(cr);
-	
-}
-
-void draw_tiles(term_data* td, int x, int y, int n, const byte *ap, const char *cp, const byte *tap, const char *tcp)
-{
-	cairo_t *cr;
-	
-	/* Tile & Current Position */
-	int tx, ty;
-	int cx, cy;
-	
-	cr = cairo_create(td->surface);
-	
-	cairo_rectangle(cr, x * td->font.w, y * td->font.h, td->font.w * n, td->font.h);
-	set_foreground_color(cr, TERM_DARK);
-	cairo_fill(cr);
-	
-	/* Get the current position, Minus cx, which changes for each iteration */
-	cx = 0;
-	cy = (y * td->font.h);
-	
-	for (int i = 0; i < n; i++)
-	{
-		/* Increment x 1 step; use the font width because of equippy chars and the gap between 
-   		 * the status bar and the map.
-		 */
-		cx += x * td->font.w;
-		
-		/* Get the terrain tile, scaled to the font size */
-		tx= (tcp[i] & 0x7F) * td->font.w;
-		ty = (tap[i] & 0x7F) * td->font.h;
-		
-		draw_tile(td, x + i, y, tx, ty);
-	
-		/* If foreground is the same as background, we're done */
-		if ((tap[i] == ap[i]) && (tcp[i] == cp[i])) continue;
-		
-		/* Get the foreground tile size, scaled to the font size */
-		tx = (cp[i] & 0x7F) * td->font.w;
-		ty = (ap[i] & 0x7F) * td->font.h;
-	
-		draw_tile(td, x + i, y, tx, ty);
-	}
-	
-	cairo_destroy(cr);
-	
-}
-
-void hilite_char(term_data* td, int x, int y, byte a)
-{
-	cairo_t* cr;
-	cr = cairo_create(td->surface);
-	cairo_rectangle(cr, x * td->font.w, y * td->font.h, td->font.w, td->font.h);
-	set_foreground_color(cr, a);
-	cairo_set_operator(cr, CAIRO_OPERATOR_ADD);
-	cairo_fill(cr);
-	cairo_destroy(cr);
-}
-
 void clear_chars(term_data* td, int x, int y, int n)
 {
 	cairo_t* cr;
@@ -260,6 +163,51 @@ void clear_chars(term_data* td, int x, int y, int n)
 	cairo_rectangle(cr, x * td->font.w, y * td->font.h, n * td->font.w, td->font.h);
 	cairo_fill(cr);
 	cairo_destroy(cr);
+}
+
+void color_chars(term_data* td, int x, int y, int n, byte a, bool trans)
+{
+	cairo_t* cr;
+	cr = cairo_create(td->surface);
+	set_foreground_color(cr, a);
+	cairo_rectangle(cr, x * td->font.w, y * td->font.h, n * td->font.w, td->font.h);
+	if (trans) cairo_set_operator(cr, CAIRO_OPERATOR_ADD);
+	cairo_fill(cr);
+	cairo_destroy(cr);
+}
+
+void draw_tile(term_data* td, int x, int y, int tx, int ty, bool trans)
+{
+	cairo_t* cr;
+	cr = cairo_create(td->surface);
+	
+	cairo_rectangle(cr, x * td->font.w, y * td->font.h, td->font.w, td->font.h);
+	cairo_set_source(cr, tile_pattern);
+	cairo_surface_set_device_offset(graphical_tiles, (tx - x) * td->font.w, (ty - y) * td->font.h);
+	
+	// Use transparency.
+	if (trans) cairo_set_operator(cr, CAIRO_OPERATOR_ADD);
+	
+	/* Draw it */
+	cairo_fill(cr);
+}
+
+void draw_tiles(term_data* td, int x, int y, int n, const byte *ap, const char *cp, const byte *tap, const char *tcp)
+{
+	clear_chars(td, x, y, n);
+	//color_chars(td, x, y, n, TERM_SLATE, false);
+	
+	for (int i = 0; i < n; i++)
+	{
+		/* Draw the terrain, scaled to the font size */
+		draw_tile(td, x + i, y, tcp[i] & 0x7f, tap[i] & 0x7f, false);
+	
+		/* If foreground is the same as background, we're done */
+		if ((tap[i] == ap[i]) && (tcp[i] == cp[i])) continue;
+		
+		/* Draw the foreground tile, scaled to the font size */
+		draw_tile(td, x + i, y, cp[i] & 0x7f, ap[i] & 0x7f, true);
+	}
 }
 
 void write_chars(term_data* td, int x, int y, int n, byte a, const char* text)

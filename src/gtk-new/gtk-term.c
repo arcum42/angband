@@ -179,7 +179,7 @@ static errr Term_curs_gtk(int x, int y)
 {
 	term_data *td = (term_data*)(Term->data);
 	
-	hilite_char(td, x, y, TERM_SLATE);
+	color_chars(td, x, y, 1, TERM_SLATE, true);
 
 	/* Success */
 	return (0);
@@ -256,7 +256,6 @@ char *latin1_to_utf8(int n, cptr s)
  */
 static errr Term_text_gtk(int x, int y, int n, byte a, const char *cp)
 {
-//	printf("<-- '%s.\n", cp);
 	term_data *td = (term_data*)(Term->data);
 	
 	char *s2;
