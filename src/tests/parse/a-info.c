@@ -54,7 +54,7 @@ static int test_badsval1(void *state) {
 }
 
 static int test_i0(void *state) {
-	enum parser_error r = parser_parse(state, "I:light:6:3");
+	enum parser_error r = parser_parse(state, "I:light:6");
 	struct artifact *a;
 
 	eq(r, PARSE_ERROR_NONE);
@@ -62,7 +62,6 @@ static int test_i0(void *state) {
 	require(a);
 	eq(a->tval, TV_LIGHT);
 	eq(a->sval, 6);
-	eq(a->pval, 3);
 	ok;
 }
 
@@ -132,6 +131,17 @@ static int test_f0(void *state) {
 	ok;
 }
 
+static int test_l0(void *state) {
+	enum parser_error r = parser_parse(state, "L:17:STR | CON");
+	struct artifact *a;
+
+	eq(r, PARSE_ERROR_NONE);
+	a = parser_priv(state);
+	eq(a->pval[0], 17);
+	require(a->pval_flags[0]);
+	ok;
+}
+
 static int test_e0(void *state) {
 	enum parser_error r = parser_parse(state, "E:DETECT_ALL:20+d30");
 	struct artifact *a;
@@ -188,5 +198,6 @@ static struct test tests[] = {
 	{ "e0", test_e0 },
 	{ "m0", test_m0 },
 	{ "d0", test_d0 },
+	{ "l0", test_l0 },
 	{ NULL, NULL }
 };

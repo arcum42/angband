@@ -130,7 +130,8 @@ static struct generic_command cmd_action[] =
 	{ "Jam a door shut",            'j', CMD_JAM, NULL },
 	{ "Bash a door open",           'B', CMD_BASH, NULL },
 	{ "Fire at nearest target",   'h', CMD_NULL, textui_cmd_fire_at_nearest },
-	{ "Throw an item",            'v', CMD_THROW, textui_cmd_throw }
+	{ "Throw an item",            'v', CMD_THROW, textui_cmd_throw },
+	{ "Walk into a trap",         'W', CMD_JUMP, NULL },
 };
 
 /* Item management commands */
@@ -139,8 +140,7 @@ static struct generic_command cmd_item_manage[] =
 	{ "Display equipment listing", 'e', CMD_NULL, do_cmd_equip },
 	{ "Display inventory listing", 'i', CMD_NULL, do_cmd_inven },
 	{ "Pick up objects",           'g', CMD_PICKUP, NULL },
-	{ "Destroy an item",           'k', CMD_DESTROY, textui_cmd_destroy },
-	
+	{ "Destroy an item",           'k', CMD_DESTROY, textui_cmd_destroy },	
 };
 
 /* Information access commands */
@@ -151,6 +151,7 @@ static struct generic_command cmd_info[] =
 	{ "Cast a spell", 'm', CMD_CAST, textui_obj_cast, player_can_cast },
 	{ "Cast a spell", 'p', CMD_CAST, textui_obj_cast, player_can_cast },
 	{ "Full dungeon map",             'M', CMD_NULL, do_cmd_view_map },
+	{ "Toggle ignoring of items",     'K', CMD_NULL, textui_cmd_toggle_ignore },
 	{ "Display visible item list",    ']', CMD_NULL, do_cmd_itemlist },
 	{ "Display visible monster list", '[', CMD_NULL, do_cmd_monlist },
 	{ "Locate player on map",         'L', CMD_NULL, do_cmd_locate },
@@ -167,7 +168,6 @@ static struct generic_command cmd_info[] =
 static struct generic_command cmd_util[] =
 {
 	{ "Interact with options",        '=', CMD_NULL, do_cmd_xxx_options },
-	{ "Port-specific preferences",    '!', CMD_NULL, do_cmd_port },
 
 	{ "Save and don't quit",  KTRL('S'), CMD_SAVE, NULL },
 	{ "Save and quit",        KTRL('X'), CMD_QUIT, NULL },
@@ -188,13 +188,13 @@ static struct generic_command cmd_hidden[] =
 	{ "Toggle windows",     KTRL('E'), CMD_NULL, toggle_inven_equip }, /* XXX */
 	{ "Alter a grid",             '+', CMD_ALTER, NULL },
 	{ "Walk",                     ';', CMD_WALK, NULL },
-	{ "Jump into a trap",         '-', CMD_JUMP, NULL },
 	{ "Start running",            '.', CMD_RUN, NULL },
 	{ "Stand still",              ',', CMD_HOLD, NULL },
 	{ "Center map",              KTRL('L'), CMD_NULL, do_cmd_center_map },
 
 	{ "Toggle wizard mode",  KTRL('W'), CMD_NULL, do_cmd_wizard },
 	{ "Repeat previous command",  KTRL('V'), CMD_REPEAT, NULL },
+	{ "Do autopickup",           KTRL('G'), CMD_AUTOPICKUP, NULL },
 
 #ifdef ALLOW_DEBUG
 	{ "Debug mode commands", KTRL('A'), CMD_NULL, do_cmd_try_debug },
@@ -412,6 +412,11 @@ unsigned char cmd_lookup_key(cmd_code cmd)
 		}
 	}
 	return 0;
+}
+
+cmd_code cmd_lookup(unsigned char key)
+{
+	return converted_list[key].command->cmd;
 }
 
 
@@ -677,13 +682,13 @@ static bool textui_process_key(unsigned char c)
 	if (c == '\n' || c == '\r')
 		c = textui_action_menu_choose();
 
+	if (c == '\0' || c == ESCAPE || c == ' ' || c == '\a')
+		return TRUE;
+
 	cmd = &converted_list[c];
 	command = cmd->command;
 	if (!command)
 		return FALSE;
-
-	if (c == ESCAPE || c == ' ' || c == '\a')
-		return TRUE;
 
 	if (key_confirm_command(c) &&
 			(!command->prereq || command->prereq()))

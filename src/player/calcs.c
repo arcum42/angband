@@ -23,6 +23,7 @@
 #include "game-event.h"
 #include "monster/monster.h"
 #include "object/tvalsval.h"
+#include "object/object.h"
 #include "spells.h"
 #include "squelch.h"
 
@@ -886,7 +887,7 @@ static void calc_spells(void)
 			p_ptr->spell_flags[j] &= ~PY_SPELL_LEARNED;
 
 			/* Message */
-			msg_format("You have forgotten the %s of %s.", p,
+			msg("You have forgotten the %s of %s.", p,
 			           get_spell_name(cp_ptr->spell_book, j));
 
 			/* One more can be learned */
@@ -916,7 +917,7 @@ static void calc_spells(void)
 			p_ptr->spell_flags[j] &= ~PY_SPELL_LEARNED;
 
 			/* Message */
-			msg_format("You have forgotten the %s of %s.", p,
+			msg("You have forgotten the %s of %s.", p,
 			           get_spell_name(cp_ptr->spell_book, j));
 
 			/* One more can be learned */
@@ -952,7 +953,7 @@ static void calc_spells(void)
 			p_ptr->spell_flags[j] |= PY_SPELL_LEARNED;
 
 			/* Message */
-			msg_format("You have remembered the %s of %s.",
+			msg("You have remembered the %s of %s.",
 			           p, get_spell_name(cp_ptr->spell_book, j));
 
 			/* One less can be learned */
@@ -992,7 +993,7 @@ static void calc_spells(void)
 		if (p_ptr->new_spells)
 		{
 			/* Message */
-			msg_format("You can learn %d more %s%s.",
+			msg("You can learn %d more %s%s.",
 			           p_ptr->new_spells, p,
 			           (p_ptr->new_spells != 1) ? "s" : "");
 		}
@@ -1057,7 +1058,7 @@ static void calc_mana(void)
 		/* Normal gloves hurt mage-type spells */
 		if (o_ptr->k_idx &&
 		    !of_has(f, OF_FREE_ACT) &&
-		    !(of_has(f, OF_DEX) && (o_ptr->pval > 0)) &&
+		    !(of_has(f, OF_DEX) && (o_ptr->pval[which_pval(o_ptr, OF_DEX)] > 0)) &&
 		    !(o_ptr->sval == SV_SET_OF_ALCHEMISTS_GLOVES))
 		{
 			/* Encumbered */
@@ -1122,11 +1123,11 @@ static void calc_mana(void)
 		/* Message */
 		if (p_ptr->cumber_glove)
 		{
-			msg_print("Your covered hands feel unsuitable for spellcasting.");
+			msg("Your covered hands feel unsuitable for spellcasting.");
 		}
 		else
 		{
-			msg_print("Your hands feel more suitable for spellcasting.");
+			msg("Your hands feel more suitable for spellcasting.");
 		}
 	}
 
@@ -1136,11 +1137,11 @@ static void calc_mana(void)
 		/* Message */
 		if (p_ptr->cumber_armor)
 		{
-			msg_print("The weight of your armor encumbers your movement.");
+			msg("The weight of your armor encumbers your movement.");
 		}
 		else
 		{
-			msg_print("You feel able to move more freely.");
+			msg("You feel able to move more freely.");
 		}
 	}
 }
@@ -1378,7 +1379,6 @@ void calc_bonuses(object_type inventory[], player_state *state, bool id_only)
 	bitflag f[OF_SIZE];
 	bitflag collect_f[OF_SIZE];
 
-
 	/*** Reset ***/
 
 	memset(state, 0, sizeof *state);
@@ -1423,39 +1423,54 @@ void calc_bonuses(object_type inventory[], player_state *state, bool id_only)
 		of_union(collect_f, f);
 
 		/* Affect stats */
-		if (of_has(f, OF_STR)) state->stat_add[A_STR] += o_ptr->pval;
-		if (of_has(f, OF_INT)) state->stat_add[A_INT] += o_ptr->pval;
-		if (of_has(f, OF_WIS)) state->stat_add[A_WIS] += o_ptr->pval;
-		if (of_has(f, OF_DEX)) state->stat_add[A_DEX] += o_ptr->pval;
-		if (of_has(f, OF_CON)) state->stat_add[A_CON] += o_ptr->pval;
-		if (of_has(f, OF_CHR)) state->stat_add[A_CHR] += o_ptr->pval;
+		if (of_has(f, OF_STR)) state->stat_add[A_STR] +=
+			o_ptr->pval[which_pval(o_ptr, OF_STR)];
+		if (of_has(f, OF_INT)) state->stat_add[A_INT] +=
+			o_ptr->pval[which_pval(o_ptr, OF_INT)];
+		if (of_has(f, OF_WIS)) state->stat_add[A_WIS] +=
+			o_ptr->pval[which_pval(o_ptr, OF_WIS)];
+		if (of_has(f, OF_DEX)) state->stat_add[A_DEX] +=
+			o_ptr->pval[which_pval(o_ptr, OF_DEX)];
+		if (of_has(f, OF_CON)) state->stat_add[A_CON] +=
+			o_ptr->pval[which_pval(o_ptr, OF_CON)];
+		if (of_has(f, OF_CHR)) state->stat_add[A_CHR] +=
+			o_ptr->pval[which_pval(o_ptr, OF_CHR)];
 
 		/* Affect stealth */
-		if (of_has(f, OF_STEALTH)) state->skills[SKILL_STEALTH] += o_ptr->pval;
+		if (of_has(f, OF_STEALTH)) state->skills[SKILL_STEALTH] +=
+			o_ptr->pval[which_pval(o_ptr, OF_STEALTH)];
 
 		/* Affect searching ability (factor of five) */
-		if (of_has(f, OF_SEARCH)) state->skills[SKILL_SEARCH] += (o_ptr->pval * 5);
+		if (of_has(f, OF_SEARCH)) state->skills[SKILL_SEARCH] +=
+			(o_ptr->pval[which_pval(o_ptr, OF_SEARCH)] * 5);
 
 		/* Affect searching frequency (factor of five) */
-		if (of_has(f, OF_SEARCH)) state->skills[SKILL_SEARCH_FREQUENCY] += (o_ptr->pval * 5);
+		if (of_has(f, OF_SEARCH)) state->skills[SKILL_SEARCH_FREQUENCY]
+			+= (o_ptr->pval[which_pval(o_ptr, OF_SEARCH)] * 5);
 
 		/* Affect infravision */
-		if (of_has(f, OF_INFRA)) state->see_infra += o_ptr->pval;
+		if (of_has(f, OF_INFRA)) state->see_infra +=
+			o_ptr->pval[which_pval(o_ptr, OF_INFRA)];
 
 		/* Affect digging (factor of 20) */
-		if (of_has(f, OF_TUNNEL)) state->skills[SKILL_DIGGING] += (o_ptr->pval * 20);
+		if (of_has(f, OF_TUNNEL)) state->skills[SKILL_DIGGING] +=
+			(o_ptr->pval[which_pval(o_ptr, OF_TUNNEL)] * 20);
 
 		/* Affect speed */
-		if (of_has(f, OF_SPEED)) state->speed += o_ptr->pval;
+		if (of_has(f, OF_SPEED)) state->speed +=
+			o_ptr->pval[which_pval(o_ptr, OF_SPEED)];
 
 		/* Affect blows */
-		if (of_has(f, OF_BLOWS)) extra_blows += o_ptr->pval;
+		if (of_has(f, OF_BLOWS)) extra_blows +=
+			o_ptr->pval[which_pval(o_ptr, OF_BLOWS)];
 
 		/* Affect shots */
-		if (of_has(f, OF_SHOTS)) extra_shots += o_ptr->pval;
+		if (of_has(f, OF_SHOTS)) extra_shots +=
+			o_ptr->pval[which_pval(o_ptr, OF_SHOTS)];
 
 		/* Affect Might */
-		if (of_has(f, OF_MIGHT)) extra_might += o_ptr->pval;
+		if (of_has(f, OF_MIGHT)) extra_might +=
+			o_ptr->pval[which_pval(o_ptr, OF_MIGHT)];
 
 		/* Modify the base armor class */
 		state->ac += o_ptr->ac;
@@ -1534,17 +1549,20 @@ void calc_bonuses(object_type inventory[], player_state *state, bool id_only)
 	if (of_has(collect_f, OF_RES_FIRE)) state->resist_fire = TRUE;
 	if (of_has(collect_f, OF_RES_COLD)) state->resist_cold = TRUE;
 	if (of_has(collect_f, OF_RES_POIS)) state->resist_pois = TRUE;
-	if (of_has(collect_f, OF_RES_FEAR)) state->resist_fear = TRUE;
 	if (of_has(collect_f, OF_RES_LIGHT)) state->resist_light = TRUE;
 	if (of_has(collect_f, OF_RES_DARK)) state->resist_dark = TRUE;
-	if (of_has(collect_f, OF_RES_BLIND)) state->resist_blind = TRUE;
-	if (of_has(collect_f, OF_RES_CONFU)) state->resist_confu = TRUE;
 	if (of_has(collect_f, OF_RES_SOUND)) state->resist_sound = TRUE;
 	if (of_has(collect_f, OF_RES_SHARD)) state->resist_shard = TRUE;
 	if (of_has(collect_f, OF_RES_NEXUS)) state->resist_nexus = TRUE;
 	if (of_has(collect_f, OF_RES_NETHR)) state->resist_nethr = TRUE;
 	if (of_has(collect_f, OF_RES_CHAOS)) state->resist_chaos = TRUE;
 	if (of_has(collect_f, OF_RES_DISEN)) state->resist_disen = TRUE;
+
+	/* Protection flags */
+	if (of_has(collect_f, OF_RES_FEAR)) state->resist_fear = TRUE;
+	if (of_has(collect_f, OF_RES_BLIND)) state->resist_blind = TRUE;
+	if (of_has(collect_f, OF_RES_CONFU)) state->resist_confu = TRUE;
+	if (of_has(collect_f, OF_RES_STUN)) state->resist_stun = TRUE;
 
 	/* Sustain flags */
 	if (of_has(collect_f, OF_SUST_STR)) state->sustain_str = TRUE;
@@ -1567,7 +1585,7 @@ void calc_bonuses(object_type inventory[], player_state *state, bool id_only)
 		add = state->stat_add[i];
 
 		/* Maximize mode */
-		if (OPT(adult_maximize))
+		if (OPT(birth_maximize))
 		{
 			/* Modify the stats for race/class */
 			add += (rp_ptr->r_adj[i] + cp_ptr->c_adj[i]);
@@ -2068,15 +2086,15 @@ static void update_bonuses(void)
 		/* Message */
 		if (state->heavy_shoot)
 		{
-			msg_print("You have trouble wielding such a heavy bow.");
+			msg("You have trouble wielding such a heavy bow.");
 		}
 		else if (p_ptr->inventory[INVEN_BOW].k_idx)
 		{
-			msg_print("You have no trouble wielding your bow.");
+			msg("You have no trouble wielding your bow.");
 		}
 		else
 		{
-			msg_print("You feel relieved to put down your heavy bow.");
+			msg("You feel relieved to put down your heavy bow.");
 		}
 	}
 
@@ -2086,15 +2104,15 @@ static void update_bonuses(void)
 		/* Message */
 		if (state->heavy_wield)
 		{
-			msg_print("You have trouble wielding such a heavy weapon.");
+			msg("You have trouble wielding such a heavy weapon.");
 		}
 		else if (p_ptr->inventory[INVEN_WIELD].k_idx)
 		{
-			msg_print("You have no trouble wielding your weapon.");
+			msg("You have no trouble wielding your weapon.");
 		}
 		else
 		{
-			msg_print("You feel relieved to put down your heavy weapon.");	
+			msg("You feel relieved to put down your heavy weapon.");	
 		}
 	}
 
@@ -2104,15 +2122,15 @@ static void update_bonuses(void)
 		/* Message */
 		if (state->icky_wield)
 		{
-			msg_print("You do not feel comfortable with your weapon.");
+			msg("You do not feel comfortable with your weapon.");
 		}
 		else if (p_ptr->inventory[INVEN_WIELD].k_idx)
 		{
-			msg_print("You feel comfortable with your weapon.");
+			msg("You feel comfortable with your weapon.");
 		}
 		else
 		{
-			msg_print("You feel more comfortable after removing your weapon.");
+			msg("You feel more comfortable after removing your weapon.");
 		}
 	}
 }
@@ -2143,7 +2161,7 @@ void notice_stuff(void)
 	if (p_ptr->notice & PN_SQUELCH)
 	{
 		p_ptr->notice &= ~(PN_SQUELCH);
-		if (OPT(hide_squelchable)) squelch_drop();
+		squelch_drop();
 	}
 
 	/* Combine the pack */
@@ -2232,13 +2250,13 @@ void update_stuff(void)
 	if (p_ptr->update & (PU_FORGET_FLOW))
 	{
 		p_ptr->update &= ~(PU_FORGET_FLOW);
-		forget_flow();
+		cave_forget_flow(cave);
 	}
 
 	if (p_ptr->update & (PU_UPDATE_FLOW))
 	{
 		p_ptr->update &= ~(PU_UPDATE_FLOW);
-		update_flow();
+		cave_update_flow(cave);
 	}
 
 

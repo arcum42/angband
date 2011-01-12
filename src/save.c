@@ -17,6 +17,7 @@
  */
 
 #include "angband.h"
+#include "cave.h"
 #include "history.h"
 #include "monster/monster.h"
 #include "option.h"
@@ -28,7 +29,7 @@
  */
 static void wr_item(const object_type *o_ptr)
 {
-	size_t i;
+	size_t i, j;
 
 	wr_u16b(0xffff);
 	wr_byte(ITEM_VERSION);
@@ -41,7 +42,11 @@ static void wr_item(const object_type *o_ptr)
 
 	wr_byte(o_ptr->tval);
 	wr_byte(o_ptr->sval);
-	wr_s16b(o_ptr->pval);
+
+        for (i = 0; i < MAX_PVALS; i++) {
+		wr_s16b(o_ptr->pval[i]);
+        }
+        wr_byte(o_ptr->num_pvals);
 
 	wr_byte(0);
 
@@ -68,16 +73,19 @@ static void wr_item(const object_type *o_ptr)
 	wr_byte(o_ptr->origin_depth);
 	wr_u16b(o_ptr->origin_xtra);
 
-
-	/* Hack - XXX - MarbleDice - Maximum saveable flags = 96 */
-	for (i = 0; i < 12 && i < OF_SIZE; i++)
+	for (i = 0; i < OF_BYTES && i < OF_SIZE; i++)
 		wr_byte(o_ptr->flags[i]);
-	if (i < 12) pad_bytes(12 - i);
+	if (i < OF_BYTES) pad_bytes(OF_BYTES - i);
 
-	/* Hack - XXX - MarbleDice - Maximum saveable flags = 96 */
-	for (i = 0; i < 12 && i < OF_SIZE; i++)
+	for (i = 0; i < OF_BYTES && i < OF_SIZE; i++)
 		wr_byte(o_ptr->known_flags[i]);
-	if (i < 12) pad_bytes(12 - i);
+	if (i < OF_BYTES) pad_bytes(OF_BYTES - i);
+
+	for (j = 0; j < MAX_PVALS; j++) {
+		for (i = 0; i < OF_BYTES && i < OF_SIZE; i++)
+			wr_byte(o_ptr->pval_flags[j][i]);
+		if (i < OF_BYTES) pad_bytes(OF_BYTES - i);
+	}
 
 	/* Held by monster index */
 	wr_s16b(o_ptr->held_m_idx);
@@ -85,7 +93,7 @@ static void wr_item(const object_type *o_ptr)
 	/* Save the inscription (if any) */
 	if (o_ptr->note)
 	{
-		wr_string(quark_str(o_ptr->note));
+		wr_string(o_ptr->note);
 	}
 	else
 	{
@@ -133,55 +141,27 @@ void wr_options(void)
 {
 	int i, k;
 
-	u32b flag[8];
-	u32b mask[8];
 	u32b window_flag[ANGBAND_TERM_MAX];
 	u32b window_mask[ANGBAND_TERM_MAX];
 
 
-	/* XXX */
-	for (i = 0; i < 4; i++) wr_u32b(0L);
-
-
-	/*** Special Options ***/
-
+	/* Special Options */
 	wr_byte(op_ptr->delay_factor);
 	wr_byte(op_ptr->hitpoint_warn);
 	wr_u16b(lazymove_delay);
 
+	/* Normal options */
+	for (i = 0; i < OPT_MAX; i++) {
+		const char *name = option_name(i);
+		if (!name)
+			continue;
 
-	/*** Normal options ***/
+		wr_string(name);
+		wr_byte(op_ptr->opt[i]);
+   }
 
-	/* Reset */
-	for (i = 0; i < 8; i++)
-	{
-		flag[i] = 0L;
-		mask[i] = 0L;
-	}
-
-	/* Analyze the options */
-	for (i = 0; i < OPT_MAX; i++)
-	{
-		int os = i / 32;
-		int ob = i % 32;
-
-		/* Process real entries */
-		if (!option_name(i)) continue;
-
-		/* Set flag */
-		if (op_ptr->opt[i])
-			flag[os] |= (1L << ob);
-
-		/* Set mask */
-		mask[os] |= (1L << ob);
-	}
-
-	/* Dump the flags */
-	for (i = 0; i < 8; i++) wr_u32b(flag[i]);
-
-	/* Dump the masks */
-	for (i = 0; i < 8; i++) wr_u32b(mask[i]);
-
+	/* Sentinel */
+	wr_byte(0);
 
 	/*** Window options ***/
 
@@ -265,16 +245,13 @@ void wr_monster_memory(void)
 			wr_byte(l_ptr->blows[i]);
 
 		/* Memorize flags */
-
-		/* Hack - XXX - MarbleDice - Maximum saveable flags = 96 */
-		for (i = 0; i < 12 && i < RF_SIZE; i++)
+		for (i = 0; i < RF_BYTES && i < RF_SIZE; i++)
 			wr_byte(l_ptr->flags[i]);
-		if (i < 12) pad_bytes(12 - i);
+		if (i < RF_BYTES) pad_bytes(RF_BYTES - i);
 
-		/* Hack - XXX - MarbleDice - Maximum saveable flags = 96 */
-		for (i = 0; i < 12 && i < RSF_SIZE; i++)
+		for (i = 0; i < RF_BYTES && i < RSF_SIZE; i++)
 			wr_byte(l_ptr->spell_flags[i]);
-		if (i < 12) pad_bytes(12 - i);
+		if (i < RF_BYTES) pad_bytes(RF_BYTES - i);
 
 		/* Monster limit per level */
 		wr_byte(r_ptr->max_num);
@@ -356,8 +333,8 @@ void wr_player(void)
 	wr_string(p_ptr->history);
 
 	/* Race/Class/Gender/Spells */
-	wr_byte(p_ptr->prace);
-	wr_byte(p_ptr->pclass);
+	wr_byte(p_ptr->race->ridx);
+	wr_byte(p_ptr->class->cidx);
 	wr_byte(p_ptr->psex);
 	wr_byte(op_ptr->name_suffix);
 
@@ -435,7 +412,7 @@ void wr_player(void)
 
 void wr_squelch(void)
 {
-	size_t i;
+	size_t i, n;
 
 	/* Write number of squelch bytes */
 	wr_byte(squelch_size);
@@ -453,14 +430,20 @@ void wr_squelch(void)
 		wr_byte(flags);
 	}
 
+	n = 0;
+	for (i = 0; i < z_info->k_max; i++)
+		if (k_info[i].note)
+			n++;
+
 	/* Write the current number of auto-inscriptions */
-	wr_u16b(inscriptions_count);
+	wr_u16b(n);
 
 	/* Write the autoinscriptions array */
-	for (i = 0; i < inscriptions_count; i++)
-	{
-		wr_s16b(inscriptions[i].kind_idx);
-		wr_string(quark_str(inscriptions[i].inscription_idx));
+	for (i = 0; i < z_info->k_max; i++) {
+		if (!k_info[i].note)
+			continue;
+		wr_s16b(i);
+		wr_string(k_info[i].note);
 	}
 
 	return;
@@ -498,10 +481,8 @@ void wr_misc(void)
 	wr_byte(p_ptr->is_dead);
 
 	/* Write feeling */
-	wr_byte(feeling);
-
-	/* Turn of last "feeling" */
-	wr_s32b(old_turn);
+	wr_byte(cave->feeling);
+	wr_s32b(cave->created_at);
 
 	/* Current turn */
 	wr_s32b(turn);
@@ -537,9 +518,9 @@ void wr_player_spells(void)
  */
 void wr_randarts(void)
 {
-	size_t i, j;
+	size_t i, j, k;
 
-	if (!OPT(adult_randarts))
+	if (!OPT(birth_randarts))
 		return;
 
 	wr_u16b(z_info->a_max);
@@ -550,7 +531,9 @@ void wr_randarts(void)
 
 		wr_byte(a_ptr->tval);
 		wr_byte(a_ptr->sval);
-		wr_s16b(a_ptr->pval);
+		for (j = 0; j < MAX_PVALS; j++)
+			wr_s16b(a_ptr->pval[j]);
+		wr_byte(a_ptr->num_pvals);
 
 		wr_s16b(a_ptr->to_h);
 		wr_s16b(a_ptr->to_d);
@@ -564,10 +547,15 @@ void wr_randarts(void)
 
 		wr_s32b(a_ptr->cost);
 
-		/* Hack - XXX - MarbleDice - Maximum saveable flags = 96 */
-		for (j = 0; j < 12 && j < OF_SIZE; j++)
+		for (j = 0; j < OF_BYTES && j < OF_SIZE; j++)
 			wr_byte(a_ptr->flags[j]);
-		if (j < 12) pad_bytes(OF_SIZE - j);
+		if (j < OF_BYTES) pad_bytes(OF_BYTES - j);
+
+		for (k = 0; k < MAX_PVALS; k++) {
+			for (j = 0; j < OF_BYTES && j < OF_SIZE; j++)
+				wr_byte(a_ptr->pval_flags[k][j]);
+			if (j < OF_BYTES) pad_bytes(OF_BYTES - j);
+		}
 
 		wr_byte(a_ptr->level);
 		wr_byte(a_ptr->rarity);
@@ -685,8 +673,8 @@ void wr_dungeon(void)
 	{
 		for (x = 0; x < DUNGEON_WID; x++)
 		{
-			/* Extract the important cave_info flags */
-			tmp8u = (cave_info[y][x] & (IMPORTANT_FLAGS));
+			/* Extract the important cave->info flags */
+			tmp8u = (cave->info[y][x] & (IMPORTANT_FLAGS));
 
 			/* If the run is broken, or too full, flush it */
 			if ((tmp8u != prev_char) || (count == MAX_UCHAR))
@@ -712,7 +700,7 @@ void wr_dungeon(void)
 		wr_byte((byte)prev_char);
 	}
 
-	/** Now dump the cave_info2[][] stuff **/
+	/** Now dump the cave->info2[][] stuff **/
 
 	/* Note that this will induce two wasted bytes */
 	count = 0;
@@ -724,7 +712,7 @@ void wr_dungeon(void)
 		for (x = 0; x < DUNGEON_WID; x++)
 		{
 			/* Keep all the information from info2 */
-			tmp8u = cave_info2[y][x];
+			tmp8u = cave->info2[y][x];
 
 			/* If the run is broken, or too full, flush it */
 			if ((tmp8u != prev_char) || (count == MAX_UCHAR))
@@ -763,7 +751,7 @@ void wr_dungeon(void)
 		for (x = 0; x < DUNGEON_WID; x++)
 		{
 			/* Extract a byte */
-			tmp8u = cave_feat[y][x];
+			tmp8u = cave->feat[y][x];
 
 			/* If the run is broken, or too full, flush it */
 			if ((tmp8u != prev_char) || (count == MAX_UCHAR))

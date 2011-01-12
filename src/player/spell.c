@@ -26,7 +26,7 @@
 /**
  * Collect spells from a book into the spells[] array.
  */
-int spell_collect_from_book(const object_type *o_ptr, int spells[PY_MAX_SPELLS])
+int spell_collect_from_book(const object_type *o_ptr, int *spells)
 {
 	int i;
 	int n_spells = 0;
@@ -217,7 +217,7 @@ void spell_learn(int spell)
 	p_ptr->spell_order[i] = spell;
 
 	/* Mention the result */
-	message_format(MSG_STUDY, 0, "You have learned the %s of %s.",
+	msgt(MSG_STUDY, "You have learned the %s of %s.",
 	           p, get_spell_name(cp_ptr->spell_book, spell));
 
 	/* One less spell available */
@@ -227,7 +227,7 @@ void spell_learn(int spell)
 	if (p_ptr->new_spells)
 	{
 		/* Message */
-		msg_format("You can learn %d more %s%s.",
+		msg("You can learn %d more %s%s.",
 		           p_ptr->new_spells, p, PLURAL(p_ptr->new_spells));
 	}
 
@@ -250,8 +250,8 @@ bool spell_cast(int spell, int dir)
 	/* Failed spell */
 	if (randint0(100) < chance)
 	{
-		if (OPT(flush_failure)) flush();
-		msg_print("You failed to concentrate hard enough!");
+		flush();
+		msg("You failed to concentrate hard enough!");
 	}
 
 	/* Process spell */
@@ -295,7 +295,7 @@ bool spell_cast(int spell, int dir)
 		p_ptr->csp_frac = 0;
 
 		/* Message */
-		msg_print("You faint from the effort!");
+		msg("You faint from the effort!");
 
 		/* Hack -- Bypass free action */
 		(void)inc_timed(TMD_PARALYZED, randint1(5 * oops + 1), TRUE);
@@ -306,7 +306,7 @@ bool spell_cast(int spell, int dir)
 			bool perm = (randint0(100) < 25);
 
 			/* Message */
-			msg_print("You have damaged your health!");
+			msg("You have damaged your health!");
 
 			/* Reduce constitution */
 			player_stat_dec(p_ptr, A_CON, perm);

@@ -15,7 +15,9 @@
  *    and not for profit purposes provided that this copyright and statement
  *    are included in all such copies.  Other copyrights may also apply.
  */
+
 #include "angband.h"
+#include "cave.h"
 #include "tvalsval.h"
 
 
@@ -161,11 +163,11 @@ static void object_mention(const object_type *o_ptr)
 
 	/* Provide a silly message */
 	if (artifact_p(o_ptr))
-		msg_format("Artifact (%s)", o_name);
+		msg("Artifact (%s)", o_name);
 	else if (ego_item_p(o_ptr))
-		msg_format("Ego-item (%s)", o_name);
+		msg("Ego-item (%s)", o_name);
 	else
-		msg_format("Object (%s)", o_name);
+		msg("Object (%s)", o_name);
 }
 
 
@@ -280,8 +282,13 @@ static int make_ego_item(object_type *o_ptr, int level, bool force_uncursed)
  */
 static void copy_artifact_data(object_type *o_ptr, const artifact_type *a_ptr)
 {
+	int i;
+
 	/* Extract the other fields */
-	o_ptr->pval = a_ptr->pval;
+	for (i = 0; i < a_ptr->num_pvals; i++)
+		if (a_ptr->pval[i])
+			o_ptr->pval[i] = a_ptr->pval[i];
+	o_ptr->num_pvals = a_ptr->num_pvals;
 	o_ptr->ac = a_ptr->ac;
 	o_ptr->dd = a_ptr->dd;
 	o_ptr->ds = a_ptr->ds;
@@ -304,11 +311,11 @@ static void copy_artifact_data(object_type *o_ptr, const artifact_type *a_ptr)
 	 * - a sizeable increase for any artifact (c.f. up to 30 for ego items)
 	 * - a bigger increase for more powerful artifacts
 	 */
-	rating += 30;
-	rating += object_power(o_ptr, FALSE, NULL, TRUE) / 25;
+	cave->rating += 30;
+	cave->rating += object_power(o_ptr, FALSE, NULL, TRUE) / 25;
 
 	/* Set the good item flag */
-	good_item_flag = TRUE;
+	cave->good_item = TRUE;
 
 	/* Cheat -- peek at the item */
 	if (OPT(cheat_peek)) object_mention(o_ptr);
@@ -334,7 +341,7 @@ static bool make_artifact_special(object_type *o_ptr, int level)
 
 
 	/* No artifacts, do nothing */
-	if (OPT(adult_no_artifacts)) return (FALSE);
+	if (OPT(birth_no_artifacts)) return (FALSE);
 
 	/* No artifacts in the town */
 	if (!p_ptr->depth) return (FALSE);
@@ -416,7 +423,7 @@ static bool make_artifact(object_type *o_ptr)
 
 
 	/* No artifacts, do nothing */
-	if (OPT(adult_no_artifacts) &&
+	if (OPT(birth_no_artifacts) &&
 	    o_ptr->name1 != ART_GROND &&
 	    o_ptr->name1 != ART_MORGOTH)
 		return (FALSE);
@@ -527,14 +534,16 @@ static void a_m_aux_1(object_type *o_ptr, int level, int power)
 			if (power < -1)
 			{
 				/* Hack -- Horrible digging bonus */
-				o_ptr->pval = 0 - (5 + randint1(5));
+				o_ptr->pval[which_pval(o_ptr, OF_TUNNEL)]
+					= 0 - (5 + randint1(5));
 			}
 
 			/* Bad */
 			else if (power < 0)
 			{
 				/* Hack -- Reverse digging bonus */
-				o_ptr->pval = -o_ptr->pval;
+				o_ptr->pval[which_pval(o_ptr, OF_TUNNEL)]
+					= -o_ptr->pval[which_pval(o_ptr, OF_TUNNEL)];
 			}
 
 			break;
@@ -612,7 +621,7 @@ static void a_m_aux_2(object_type *o_ptr, int level, int power)
 		case TV_DRAG_ARMOR:
 		{
 			/* Rating boost */
-			rating += object_power(o_ptr, FALSE, NULL, TRUE) / 15;
+			cave->rating += object_power(o_ptr, FALSE, NULL, TRUE) / 15;
 
 			/* Mention the item */
 			if (OPT(cheat_peek)) object_mention(o_ptr);
@@ -652,7 +661,9 @@ static void a_m_aux_3(object_type *o_ptr, int level, int power)
 				case SV_RING_PROTECTION:
 				case SV_RING_SLAYING:
 				{
-					o_ptr->pval = -o_ptr->pval;
+					/* CC: multiple pvals deliberately not 
+					 * affected pending new curses */
+					o_ptr->pval[DEFAULT_PVAL] = -o_ptr->pval[DEFAULT_PVAL];
 					o_ptr->to_h = -o_ptr->to_h;
 					o_ptr->to_d = -o_ptr->to_d;
 					o_ptr->to_a = -o_ptr->to_a;
@@ -673,7 +684,9 @@ static void a_m_aux_3(object_type *o_ptr, int level, int power)
 				case SV_AMULET_INFRAVISION:
 				case SV_AMULET_SEARCHING:
 				{
-					o_ptr->pval = -o_ptr->pval;
+					/* CC: multiple pvals deliberately not 
+					 * affected pending new curses */
+					o_ptr->pval[DEFAULT_PVAL] = -o_ptr->pval[DEFAULT_PVAL];
 					o_ptr->to_h = -o_ptr->to_h;
 					o_ptr->to_d = -o_ptr->to_d;
 					o_ptr->to_a = -o_ptr->to_a;
@@ -698,12 +711,12 @@ static void a_m_aux_3(object_type *o_ptr, int level, int power)
 				case SV_RING_SPEED:
 				{
 					/* Super-charge the ring */
-					while (randint0(100) < 50) o_ptr->pval++;
+					while (randint0(100) < 50) o_ptr->pval[which_pval(o_ptr, OF_SPEED)]++;
 
 					if (power >= 0)
 					{
 						/* Rating boost */
-						rating += 25;
+						cave->rating += 25;
 
 						/* Mention the item */
 						if (OPT(cheat_peek)) object_mention(o_ptr);
@@ -727,7 +740,7 @@ static void a_m_aux_3(object_type *o_ptr, int level, int power)
 				case SV_AMULET_TRICKERY:
 				{
 					/* Boost the rating */
-					rating += 25;
+					cave->rating += 25;
 
 					/* Mention the item */
 					if (OPT(cheat_peek)) object_mention(o_ptr);
@@ -773,10 +786,10 @@ static void a_m_aux_4(object_type *o_ptr, int level, int power)
 			if (k_info[o_ptr->k_idx].level <= 0) break;
 
 			/* Hack -- pick a "difficulty" */
-			o_ptr->pval = randint1(k_info[o_ptr->k_idx].level);
+			o_ptr->pval[DEFAULT_PVAL] = randint1(k_info[o_ptr->k_idx].level);
 
 			/* Never exceed "difficulty" of 55 to 59 */
-			if (o_ptr->pval > 55) o_ptr->pval = (s16b)(55 + randint0(5));
+			if (o_ptr->pval[DEFAULT_PVAL] > 55) o_ptr->pval[DEFAULT_PVAL] = (s16b)(55 + randint0(5));
 
 			break;
 		}
@@ -806,11 +819,8 @@ void set_ego_xtra_sustain(bitflag flags[OF_SIZE])
 static const int ego_resists[] =
 {
 	OF_RES_POIS,
-	OF_RES_FEAR,
 	OF_RES_LIGHT,
 	OF_RES_DARK,
-	OF_RES_BLIND,
-	OF_RES_CONFU,
 	OF_RES_SOUND,
 	OF_RES_SHARD,
 	OF_RES_NEXUS,
@@ -837,6 +847,9 @@ static const int ego_powers[] =
 	OF_SEE_INVIS,
 	OF_FREE_ACT,
 	OF_HOLD_LIFE,
+	OF_RES_BLIND,
+	OF_RES_CONFU,
+	OF_RES_FEAR,
 };
 
 void set_ego_xtra_power(bitflag flags[OF_SIZE])
@@ -879,6 +892,8 @@ static int get_new_attr(bitflag flags[OF_SIZE], const int attrs[], size_t size)
  */
 void object_prep(object_type *o_ptr, struct object_kind *k, int lev, aspect rand_aspect)
 {
+	int i;
+
 	/* Clear the record */
 	(void)WIPE(o_ptr, object_type);
 
@@ -892,15 +907,17 @@ void object_prep(object_type *o_ptr, struct object_kind *k, int lev, aspect rand
 	/* Default number */
 	o_ptr->number = 1;
 
-	/* Default "pval" */
-	o_ptr->pval = randcalc(k->pval, lev, rand_aspect);
+	/* Default "pvals" */
+	for (i = 0; i < k->num_pvals; i++)
+		o_ptr->pval[i] = randcalc(k->pval[i], lev, rand_aspect);
+	o_ptr->num_pvals = k->num_pvals;
 
 	/* Default weight */
 	o_ptr->weight = k->weight;
 	
 	/* Assign charges (wands/staves only) */
 	if (o_ptr->tval == TV_WAND || o_ptr->tval == TV_STAFF)
-		o_ptr->pval = randcalc(k->charge, lev, rand_aspect);
+		o_ptr->pval[DEFAULT_PVAL] = randcalc(k->charge, lev, rand_aspect);
 
 	/* Default magic */
 	o_ptr->to_h = randcalc(k->to_h, lev, rand_aspect);
@@ -935,6 +952,7 @@ void object_prep(object_type *o_ptr, struct object_kind *k, int lev, aspect rand
 void apply_magic(object_type *o_ptr, int lev, bool allow_artifacts, bool good, bool great)
 {
 	int power = 0;
+	int i;
 	/*u32b xtra = 0;*/
 	/*bool new = FALSE;*/
 
@@ -970,7 +988,6 @@ void apply_magic(object_type *o_ptr, int lev, bool allow_artifacts, bool good, b
 	/* Roll for artifact creation */
 	if (allow_artifacts)
 	{
-		int i;
 		int rolls = 0;
 
 		/* Get one roll if excellent */
@@ -1101,14 +1118,21 @@ void apply_magic(object_type *o_ptr, int lev, bool allow_artifacts, bool good, b
 			o_ptr->to_d -= randcalc(e_ptr->to_d, lev, RANDOMISE);
 			o_ptr->to_a -= randcalc(e_ptr->to_a, lev, RANDOMISE);
 
-			/* Apply ego pval */
-			o_ptr->pval -= randcalc(e_ptr->pval, lev, RANDOMISE);
+			/* CC: multiple pvals left untouched pending new curses */
+			o_ptr->pval[DEFAULT_PVAL] -= randcalc(e_ptr->pval[DEFAULT_PVAL], lev, RANDOMISE);
 
-			/* Apply minimums */
-			if (o_ptr->to_h > -1 * e_ptr->min_to_h) o_ptr->to_h = -1 * e_ptr->min_to_h;
-			if (o_ptr->to_d > -1 * e_ptr->min_to_d) o_ptr->to_d = -1 * e_ptr->min_to_d;
-			if (o_ptr->to_a > -1 * e_ptr->min_to_a) o_ptr->to_a = -1 * e_ptr->min_to_a;
-			if (o_ptr->pval > -1 * e_ptr->min_pval) o_ptr->pval = -1 * e_ptr->min_pval;
+			/* Apply minima */
+			if (o_ptr->to_h > -1 * e_ptr->min_to_h)
+				o_ptr->to_h = -1 * e_ptr->min_to_h;
+			if (o_ptr->to_d > -1 * e_ptr->min_to_d)
+				o_ptr->to_d = -1 * e_ptr->min_to_d;
+			if (o_ptr->to_a > -1 * e_ptr->min_to_a)
+				o_ptr->to_a = -1 * e_ptr->min_to_a;
+
+			if (o_ptr->pval[DEFAULT_PVAL]
+				> -1 * e_ptr->min_pval[DEFAULT_PVAL])
+				o_ptr->pval[DEFAULT_PVAL]
+					= -1 * e_ptr->min_pval[DEFAULT_PVAL];
 		}
 
 		/* Hack -- apply extra bonuses if needed */
@@ -1119,18 +1143,26 @@ void apply_magic(object_type *o_ptr, int lev, bool allow_artifacts, bool good, b
 			o_ptr->to_d += randcalc(e_ptr->to_d, lev, RANDOMISE);
 			o_ptr->to_a += randcalc(e_ptr->to_a, lev, RANDOMISE);
 
-			/* Apply ego pval */
-			o_ptr->pval += randcalc(e_ptr->pval, lev, RANDOMISE);
+			/* Apply ego pvals */
+			for (i = 0; i < e_ptr->num_pvals; i++) {
+				if (!o_ptr->pval[i]) o_ptr->num_pvals++;
+				o_ptr->pval[i] += randcalc(e_ptr->pval[i], lev, RANDOMISE);
+			}
 
 			/* Apply minimums */
 			if (o_ptr->to_h < e_ptr->min_to_h) o_ptr->to_h = e_ptr->min_to_h;
 			if (o_ptr->to_d < e_ptr->min_to_d) o_ptr->to_d = e_ptr->min_to_d;
 			if (o_ptr->to_a < e_ptr->min_to_a) o_ptr->to_a = e_ptr->min_to_a;
-			if (o_ptr->pval < e_ptr->min_pval) o_ptr->pval = e_ptr->min_pval;
+
+			for (i = 0; i < e_ptr->num_pvals; i++)
+			{
+				if (o_ptr->pval[i] < e_ptr->min_pval[i])
+					o_ptr->pval[i] = e_ptr->min_pval[i];
+			}
 		}
 
 		/* Hack -- apply rating bonus */
-		rating += e_ptr->rating;
+		cave->rating += e_ptr->rating;
 
 		/* Cheat -- describe the item */
 		if (OPT(cheat_peek)) object_mention(o_ptr);
@@ -1245,7 +1277,7 @@ static bool kind_is_good(const object_kind *k_ptr)
  *
  * We assume that the given object has been "wiped".
  */
-bool make_object(object_type *j_ptr, int lev, bool good, bool great)
+bool make_object(struct cave *c, object_type *j_ptr, int lev, bool good, bool great)
 {
 	int k_idx, base;
 	object_kind *k_ptr;
@@ -1283,10 +1315,10 @@ bool make_object(object_type *j_ptr, int lev, bool good, bool great)
 
 
 	/* Notice "okay" out-of-depth objects */
-	if (!cursed_p(j_ptr) && (k_info[j_ptr->k_idx].level > p_ptr->depth))
+	if (!cursed_p(j_ptr) && (k_info[j_ptr->k_idx].level > c->depth))
 	{
 		/* Rating increase */
-		rating += (k_info[j_ptr->k_idx].alloc_min - p_ptr->depth);
+		c->rating += (k_info[j_ptr->k_idx].alloc_min - c->depth);
 
 		/* Cheat -- peek at items */
 		if (OPT(cheat_peek)) object_mention(j_ptr);
@@ -1333,8 +1365,7 @@ void make_gold(object_type *j_ptr, int lev, int coin_type)
 	object_prep(j_ptr, &k_info[k_idx], lev, RANDOMISE);
 
 	/* If we're playing with no_selling, increase the value */
-	if (OPT(adult_no_selling)) value = 5 * value;
+	if (OPT(birth_no_selling)) value = 5 * value;
 
-	j_ptr->pval = value;
+	j_ptr->pval[DEFAULT_PVAL] = value;
 }
-

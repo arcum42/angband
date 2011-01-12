@@ -21,6 +21,7 @@
 #include "attack.h"
 #include "cave.h"
 #include "cmds.h"
+#include "game-event.h"
 #include "generate.h"
 #include "history.h"
 #include "monster/monster.h"
@@ -29,6 +30,7 @@
 #include "object/object.h"
 #include "squelch.h"
 #include "trap.h"
+
 
 /*
  * Search for hidden things.  Returns true if a search was attempted, returns
@@ -59,7 +61,7 @@ bool search(bool verbose)
 	{
 		if (verbose)
 		{
-			msg_print("You can't make out your surroundings well enough to search.");
+			msg("You can't make out your surroundings well enough to search.");
 
 			/* Cancel repeat */
 			disturb(0, 0);
@@ -77,7 +79,7 @@ bool search(bool verbose)
 			if (randint0(100) < chance)
 			{
 				/* Invisible trap */
-				if (cave_feat[y][x] == FEAT_INVIS)
+				if (cave->feat[y][x] == FEAT_INVIS)
 				{
 					found = TRUE;
 
@@ -85,22 +87,22 @@ bool search(bool verbose)
 					pick_trap(y, x);
 
 					/* Message */
-					msg_print("You have found a trap.");
+					msg("You have found a trap.");
 
 					/* Disturb */
 					disturb(0, 0);
 				}
 
 				/* Secret door */
-				if (cave_feat[y][x] == FEAT_SECRET)
+				if (cave->feat[y][x] == FEAT_SECRET)
 				{
 					found = TRUE;
 
 					/* Message */
-					msg_print("You have found a secret door.");
+					msg("You have found a secret door.");
 
 					/* Pick a door */
-					place_closed_door(y, x);
+					place_closed_door(cave, y, x);
 
 					/* Disturb */
 					disturb(0, 0);
@@ -113,10 +115,10 @@ bool search(bool verbose)
 					if (o_ptr->tval != TV_CHEST) continue;
 
 					/* Skip disarmed chests */
-					if (o_ptr->pval <= 0) continue;
+					if (o_ptr->pval[DEFAULT_PVAL] <= 0) continue;
 
 					/* Skip non-trapped chests */
-					if (!chest_traps[o_ptr->pval]) continue;
+					if (!chest_traps[o_ptr->pval[DEFAULT_PVAL]]) continue;
 
 					/* Identify once */
 					if (!object_is_known(o_ptr))
@@ -124,7 +126,7 @@ bool search(bool verbose)
 						found = TRUE;
 
 						/* Message */
-						msg_print("You have discovered a trap on the chest!");
+						msg("You have discovered a trap on the chest!");
 
 						/* Know the trap */
 						object_notice_everything(o_ptr);
@@ -140,9 +142,9 @@ bool search(bool verbose)
 	if (verbose && !found)
 	{
 		if (chance >= 100)
-			msg_print("There are no secrets here.");
+			msg("There are no secrets here.");
 		else
-			msg_print("You found nothing.");
+			msg("You found nothing.");
 	}
 
 	return TRUE;
@@ -162,7 +164,8 @@ static void py_pickup_gold(void)
 	s32b total_gold = 0L;
 	byte *treasure;
 
-	s16b this_o_idx, next_o_idx = 0;
+	s16b this_o_idx = 0;
+	s16b next_o_idx = 0;
 
 	object_type *o_ptr;
 
@@ -174,7 +177,7 @@ static void py_pickup_gold(void)
 
 
 	/* Pick up all the ordinary gold objects */
-	for (this_o_idx = cave_o_idx[py][px]; this_o_idx; this_o_idx = next_o_idx)
+	for (this_o_idx = cave->o_idx[py][px]; this_o_idx; this_o_idx = next_o_idx)
 	{
 		/* Get the object */
 		o_ptr = &o_list[this_o_idx];
@@ -194,7 +197,7 @@ static void py_pickup_gold(void)
 			verbal = TRUE;
 
 		/* Increment total value */
-		total_gold += (s32b)o_ptr->pval;
+		total_gold += (s32b)o_ptr->pval[DEFAULT_PVAL];
 
 		/* Delete the gold */
 		delete_object_idx(this_o_idx);
@@ -255,7 +258,7 @@ static void py_pickup_gold(void)
 
 		/* Display the message */
 		if (verbal)
-			message(sound_msg, 0, buf);
+			msgt(sound_msg, "%s", buf);
 
 		/* Add gold to purse */
 		p_ptr->au += total_gold;
@@ -286,7 +289,7 @@ static bool auto_pickup_okay(const object_type *o_ptr)
 /*
  * Carry an object and delete it.
  */
-static void py_pickup_aux(int o_idx, bool msg)
+static void py_pickup_aux(int o_idx, bool domsg)
 {
 	int slot, quiver_slot = 0;
 
@@ -328,13 +331,13 @@ static void py_pickup_aux(int o_idx, bool msg)
 		history_add_artifact(o_ptr->name1, object_is_known(o_ptr), TRUE);
 
 	/* Optionally, display a message */
-	if (msg && !quiver_slot)
+	if (domsg && !quiver_slot)
 	{
 		/* Describe the object */
 		object_desc(o_name, sizeof(o_name), o_ptr, ODESC_PREFIX | ODESC_FULL);
 
 		/* Message */
-		msg_format("You have %s (%c).", o_name, index_to_label(slot));
+		msg("You have %s (%c).", o_name, index_to_label(slot));
 	}
 
 
@@ -344,6 +347,70 @@ static void py_pickup_aux(int o_idx, bool msg)
 	/* If we have a quiver slot that this ammo matches, use it */
 	if (quiver_slot) wield_item(o_ptr, slot, quiver_slot);
 }
+
+int do_autopickup(void)
+{
+	int py = p_ptr->py;
+	int px = p_ptr->px;
+
+	s16b this_o_idx, next_o_idx = 0;
+
+	object_type *o_ptr;
+
+	/* Objects picked up.  Used to determine time cost of command. */
+	byte objs_picked_up = 0;
+
+	size_t floor_num = 0;
+	int floor_list[MAX_FLOOR_STACK + 1];
+
+	/* Nothing to pick up -- return */
+	if (!cave->o_idx[py][px]) return (0);
+
+	/* Always pickup gold, effortlessly */
+	py_pickup_gold();
+
+
+	/* Scan the remaining objects */
+	for (this_o_idx = cave->o_idx[py][px]; this_o_idx; this_o_idx = next_o_idx)
+	{
+		/* Get the object and the next object */
+		o_ptr = &o_list[this_o_idx];
+		next_o_idx = o_ptr->next_o_idx;
+
+		/* Ignore all hidden objects and non-objects */
+		if (squelch_item_ok(o_ptr) || !o_ptr->k_idx) continue;
+
+		/* XXX Hack -- Enforce limit */
+		if (floor_num >= N_ELEMENTS(floor_list)) break;
+
+
+		/* Hack -- disturb */
+		disturb(0, 0);
+
+
+		/* Automatically pick up items into the backpack */
+		if (auto_pickup_okay(o_ptr))
+		{
+			/* Pick up the object with message */
+			py_pickup_aux(this_o_idx, TRUE);
+			objs_picked_up++;
+
+			continue;
+		}
+
+
+		/* Tally objects and store them in an array. */
+
+		/* Remember this object index */
+		floor_list[floor_num] = this_o_idx;
+
+		/* Count non-gold objects that remain on the floor. */
+		floor_num++;
+	}
+
+	return objs_picked_up;
+}
+
 
 
 /*
@@ -386,172 +453,44 @@ byte py_pickup(int pickup)
 	int py = p_ptr->py;
 	int px = p_ptr->px;
 
-	char o_name[80];
+	s16b this_o_idx = 0;
 
-	s16b this_o_idx, next_o_idx = 0;
+	size_t floor_num = 0;
+	int floor_list[MAX_FLOOR_STACK + 1];
 
-	object_type *o_ptr;
+	size_t i;
+	int can_pickup = 0;
+	bool call_function_again = FALSE;
+
+	bool domsg = TRUE;
 
 	/* Objects picked up.  Used to determine time cost of command. */
 	byte objs_picked_up = 0;
 
-	size_t floor_num = 0;
-	int floor_list[MAX_FLOOR_STACK + 1], floor_o_idx = 0;
+	/* Nothing else to pick up -- return */
+	if (!cave->o_idx[py][px]) return objs_picked_up;
 
-	int can_pickup = 0;
-	bool call_function_again = FALSE;
-
-	bool blind = ((p_ptr->timed[TMD_BLIND]) || (no_light()));
-	bool msg = TRUE;
-
-
-	/* Nothing to pick up -- return */
-	if (!cave_o_idx[py][px]) return (0);
-
-
-	/* Always pickup gold, effortlessly */
-	py_pickup_gold();
-
-
-	/* Scan the remaining objects */
-	for (this_o_idx = cave_o_idx[py][px]; this_o_idx; this_o_idx = next_o_idx)
+	/* Tally objects that can be picked up.*/
+	floor_num = scan_floor(floor_list, N_ELEMENTS(floor_list), py, px, 0x03);
+	for (i = 0; i < floor_num; i++)
 	{
-		/* Get the object and the next object */
-		o_ptr = &o_list[this_o_idx];
-		next_o_idx = o_ptr->next_o_idx;
-
-		/* Ignore all hidden objects and non-objects */
-		if (squelch_hide_item(o_ptr) || !o_ptr->k_idx) continue;
-
-		/* XXX Hack -- Enforce limit */
-		if (floor_num >= N_ELEMENTS(floor_list)) break;
-
-
-		/* Hack -- disturb */
-		disturb(0, 0);
-
-
-		/* Automatically pick up items into the backpack */
-		if (auto_pickup_okay(o_ptr))
-		{
-			/* Pick up the object with message */
-			py_pickup_aux(this_o_idx, TRUE);
-			objs_picked_up++;
-
-			continue;
-		}
-
-
-		/* Tally objects and store them in an array. */
-
-		/* Remember this object index */
-		floor_list[floor_num] = this_o_idx;
-
-		/* Count non-gold objects that remain on the floor. */
-		floor_num++;
-
-		/* Tally objects that can be picked up.*/
-		if (inven_carry_okay(o_ptr))
-			can_pickup++;
+	    can_pickup += inven_carry_okay(&o_list[floor_list[i]]);
+	}
+	
+	if (!can_pickup)
+	{
+	    /* Can't pick up, but probably want to know what's there. */
+	    event_signal(EVENT_SEEFLOOR);
+	    return objs_picked_up;
 	}
 
-	/* There are no objects left */
-	if (!floor_num)
-		return objs_picked_up;
-
-
-	/* Get hold of the last floor index */
-	floor_o_idx = floor_list[floor_num - 1];
-
-
-
-	/* Mention the objects if player is not picking them up. */
-	if (pickup == 0 || !can_pickup)
-	{
-		const char *p = "see";
-
-		/* One object */
-		if (floor_num == 1)
-		{
-			if (!can_pickup)	p = "have no room for";
-			else if (blind)     p = "feel";
-
-			/* Get the object */
-			o_ptr = &o_list[floor_o_idx];
-
-			/* Describe the object.  Less detail if blind. */
-			if (blind)
-				object_desc(o_name, sizeof(o_name), o_ptr,
-							ODESC_PREFIX | ODESC_BASE);
-			else
-				object_desc(o_name, sizeof(o_name), o_ptr,
-							ODESC_PREFIX | ODESC_FULL);
-
-			/* Message */
-			message_flush();
-			msg_format("You %s %s.", p, o_name);
-		}
-		else
-		{
-			/* Optionally, display more information about floor items */
-			if (OPT(pickup_detail))
-			{
-				ui_event_data e;
-
-				if (!can_pickup)	p = "have no room for the following objects";
-				else if (blind)     p = "feel something on the floor";
-
-				/* Scan all marked objects in the grid */
-				floor_num = scan_floor(floor_list, N_ELEMENTS(floor_list), py, px, 0x03);
-
-				/* Save screen */
-				screen_save();
-
-				/* Display objects on the floor */
-				show_floor(floor_list, floor_num, (OLIST_WEIGHT));
-
-				/* Display prompt */
-				prt(format("You %s: ", p), 0, 0);
-
-				/* Move cursor back to character, if needed */
-				if (OPT(highlight_player)) move_cursor_relative(p_ptr->py, p_ptr->px);
-
-				/* Wait for it.  Use key as next command. */
-				e = inkey_ex();
-				Term_event_push(&e);
-
-				/* Restore screen */
-				screen_load();
-			}
-
-			/* Show less detail */
-			else
-			{
-				message_flush();
-
-				if (!can_pickup)
-					msg_print("You have no room for any of the items on the floor.");
-				else
-					msg_format("You %s a pile of %d items.", (blind ? "feel" : "see"), floor_num);
-			}
-		}
-
-		/* Done */
-		return (objs_picked_up);
-	}
-
-
-	/* We can pick up objects.  Menus are not requested (yet). */
+	/* Use a menu interface for multiple objects, or pickup single objects */
 	if (pickup == 1)
 	{
-		/* Scan floor (again) */
-		floor_num = scan_floor(floor_list, N_ELEMENTS(floor_list), py, px, 0x03);
-
-		/* Use a menu interface for multiple objects, or pickup single objects */
 		if (floor_num > 1)
 			pickup = 2;
 		else
-			this_o_idx = floor_o_idx;
+			this_o_idx = floor_list[0];
 	}
 
 
@@ -574,14 +513,14 @@ byte py_pickup(int pickup)
 		call_function_again = TRUE;
 
 		/* With a list, we do not need explicit pickup messages */
-		msg = FALSE;
+		domsg = FALSE;
 	}
 
 	/* Pick up object, if legal */
 	if (this_o_idx)
 	{
 		/* Pick up the object */
-		py_pickup_aux(this_o_idx, msg);
+		py_pickup_aux(this_o_idx, domsg);
 
 		/* Indicate an object picked up. */
 		objs_picked_up = 1;
@@ -598,7 +537,6 @@ byte py_pickup(int pickup)
 }
 
 
-
 /*
  * Move player in the given direction.
  *
@@ -607,30 +545,22 @@ byte py_pickup(int pickup)
  * Note that this routine handles monsters in the destination grid,
  * and also handles attempting to move into walls/doors/rubble/etc.
  */
-void move_player(int dir)
+void move_player(int dir, bool disarm)
 {
 	int py = p_ptr->py;
 	int px = p_ptr->px;
 
-	int y, x;
-
-
-	bool old_dtrap, new_dtrap;
-
-
-	/* Find the result of moving */
-	y = py + ddy[dir];
-	x = px + ddx[dir];
-
+	int y = py + ddy[dir];
+	int x = px + ddx[dir];
 
 	/* Attack monsters */
-	if (cave_m_idx[y][x] > 0)
+	if (cave->m_idx[y][x] > 0)
 		py_attack(y, x);
 
 	/* Optionally alter known traps/doors on movement */
-	else if (OPT(easy_alter) && (cave_info[y][x] & CAVE_MARK) &&
-			(cave_feat[y][x] >= FEAT_TRAP_HEAD) &&
-			(cave_feat[y][x] <= FEAT_DOOR_TAIL))
+	else if (disarm && (cave->info[y][x] & CAVE_MARK) &&
+			(cave->feat[y][x] >= FEAT_TRAP_HEAD) &&
+			(cave->feat[y][x] <= FEAT_DOOR_TAIL))
 	{
 		/* Auto-repeat if not already repeating */
 		if (cmd_get_nrepeats() == 0)
@@ -646,93 +576,80 @@ void move_player(int dir)
 		disturb(0, 0);
 
 		/* Notice unknown obstacles */
-		if (!(cave_info[y][x] & CAVE_MARK))
+		if (!(cave->info[y][x] & CAVE_MARK))
 		{
 			/* Rubble */
-			if (cave_feat[y][x] == FEAT_RUBBLE)
+			if (cave->feat[y][x] == FEAT_RUBBLE)
 			{
-				message(MSG_HITWALL, 0, "You feel a pile of rubble blocking your way.");
-				cave_info[y][x] |= (CAVE_MARK);
-				light_spot(y, x);
+				msgt(MSG_HITWALL, "You feel a pile of rubble blocking your way.");
+				cave->info[y][x] |= (CAVE_MARK);
+				cave_light_spot(cave, y, x);
 			}
 
 			/* Closed door */
-			else if (cave_feat[y][x] < FEAT_SECRET)
+			else if (cave->feat[y][x] < FEAT_SECRET)
 			{
-				message(MSG_HITWALL, 0, "You feel a door blocking your way.");
-				cave_info[y][x] |= (CAVE_MARK);
-				light_spot(y, x);
+				msgt(MSG_HITWALL, "You feel a door blocking your way.");
+				cave->info[y][x] |= (CAVE_MARK);
+				cave_light_spot(cave, y, x);
 			}
 
 			/* Wall (or secret door) */
 			else
 			{
-				message(MSG_HITWALL, 0, "You feel a wall blocking your way.");
-				cave_info[y][x] |= (CAVE_MARK);
-				light_spot(y, x);
+				msgt(MSG_HITWALL, "You feel a wall blocking your way.");
+				cave->info[y][x] |= (CAVE_MARK);
+				cave_light_spot(cave, y, x);
 			}
 		}
 
 		/* Mention known obstacles */
 		else
 		{
-			if (cave_feat[y][x] == FEAT_RUBBLE)
-				message(MSG_HITWALL, 0, "There is a pile of rubble blocking your way.");
-			else if (cave_feat[y][x] < FEAT_SECRET)
-				message(MSG_HITWALL, 0, "There is a door blocking your way.");
+			if (cave->feat[y][x] == FEAT_RUBBLE)
+				msgt(MSG_HITWALL, "There is a pile of rubble blocking your way.");
+			else if (cave->feat[y][x] < FEAT_SECRET)
+				msgt(MSG_HITWALL, "There is a door blocking your way.");
 			else
-				message(MSG_HITWALL, 0, "There is a wall blocking your way.");
+				msgt(MSG_HITWALL, "There is a wall blocking your way.");
 		}
 	}
 
 	/* Normal movement */
 	else
 	{
-		/* Sound XXX XXX XXX */
-		/* sound(MSG_WALK); */
-
 		/* See if trap detection status will change */
-		old_dtrap = ((cave_info2[py][px] & (CAVE2_DTRAP)) != 0);
-		new_dtrap = ((cave_info2[y][x] & (CAVE2_DTRAP)) != 0);
+		bool old_dtrap = ((cave->info2[py][px] & (CAVE2_DTRAP)) != 0);
+		bool new_dtrap = ((cave->info2[y][x] & (CAVE2_DTRAP)) != 0);
 
 		/* Note the change in the detect status */
-		if (old_dtrap != new_dtrap) p_ptr->redraw |= (PR_DTRAP);
+		if (old_dtrap != new_dtrap)
+			p_ptr->redraw |= (PR_DTRAP);
 
 		/* Disturb player if the player is about to leave the area */
-		if (OPT(disturb_detect) &&
-				p_ptr->running && old_dtrap && !new_dtrap)
+		if (OPT(disturb_detect) && p_ptr->running && 
+			!p_ptr->running_firststep && old_dtrap && !new_dtrap)
 		{
 			disturb(0, 0);
 			return;
 		}
 
-  		/* Move player */
-  		monster_swap(py, px, y, x);
+		/* Move player */
+		monster_swap(py, px, y, x);
   
-
-
 		/* New location */
 		y = py = p_ptr->py;
 		x = px = p_ptr->px;
 
-
-		/* Spontaneous Searching */
-		if ((p_ptr->state.skills[SKILL_SEARCH_FREQUENCY] >= 50) ||
-		    one_in_(50 - p_ptr->state.skills[SKILL_SEARCH_FREQUENCY]))
-		{
+		/* Searching */
+		if (p_ptr->searching ||
+				(p_ptr->state.skills[SKILL_SEARCH_FREQUENCY] >= 50) ||
+				one_in_(50 - p_ptr->state.skills[SKILL_SEARCH_FREQUENCY]))
 			search(FALSE);
-		}
-
-		/* Continuous Searching */
-		if (p_ptr->searching)
-		{
-			search(FALSE);
-		}
-
 
 		/* Handle "store doors" */
-		if ((cave_feat[p_ptr->py][p_ptr->px] >= FEAT_SHOP_HEAD) &&
-			(cave_feat[p_ptr->py][p_ptr->px] <= FEAT_SHOP_TAIL))
+		if ((cave->feat[p_ptr->py][p_ptr->px] >= FEAT_SHOP_HEAD) &&
+			(cave->feat[p_ptr->py][p_ptr->px] <= FEAT_SHOP_TAIL))
 		{
 			/* Disturb */
 			disturb(0, 0);
@@ -748,13 +665,13 @@ void move_player(int dir)
 
 
 		/* Discover invisible traps */
-		if (cave_feat[y][x] == FEAT_INVIS)
+		if (cave->feat[y][x] == FEAT_INVIS)
 		{
 			/* Disturb */
 			disturb(0, 0);
 
 			/* Message */
-			msg_print("You found a trap!");
+			msg("You found a trap!");
 
 			/* Pick a trap */
 			pick_trap(y, x);
@@ -764,8 +681,8 @@ void move_player(int dir)
 		}
 
 		/* Set off an visible trap */
-		else if ((cave_feat[y][x] >= FEAT_TRAP_HEAD) &&
-		         (cave_feat[y][x] <= FEAT_TRAP_TAIL))
+		else if ((cave->feat[y][x] >= FEAT_TRAP_HEAD) &&
+		         (cave->feat[y][x] <= FEAT_TRAP_TAIL))
 		{
 			/* Disturb */
 			disturb(0, 0);
@@ -774,4 +691,6 @@ void move_player(int dir)
 			hit_trap(y, x);
 		}
 	}
+
+	p_ptr->running_firststep = FALSE;
 }

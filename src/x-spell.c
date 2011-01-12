@@ -170,26 +170,14 @@
 
 
 
-int get_spell_index(const object_type *o_ptr, int index)
+int get_spell_index(const struct object *object, int index)
 {
-	int realm, spell;
-	int sval = o_ptr->sval;
+	struct spell *sp;
 
-	/* Check bounds */
-	if ((index < 0) || (index >= SPELLS_PER_BOOK)) return -1;
-	if ((sval < 0) || (sval >= BOOKS_PER_REALM)) return -1;
-
-	/* Mage or priest spells? */
-	if (cp_ptr->spell_book == TV_MAGIC_BOOK)
-		realm = 0;
-	else
-		realm = 1;
-
-	/* Get the spell */
-	spell = spell_list[realm][sval][index];
-	if (spell == -1) return -1;
-
-	return s_info[spell].spell_index;
+	for (sp = object->kind->spells; sp; sp = sp->next)
+		if (sp->snum == index)
+			return sp->spell_index;
+	return -1;
 }
 
 
@@ -582,7 +570,7 @@ static bool cast_mage_spell(int spell, int dir)
 
 		case SPELL_SPEAR_OF_LIGHT:
 		{
-			msg_print("A line of blue shimmering light appears.");
+			msg("A line of blue shimmering light appears.");
 			light_line(dir);
 			break;
 		}
@@ -1213,7 +1201,7 @@ static bool cast_priest_spell(int spell, int dir)
 		{
 			if (banish_evil(100))
 			{
-				msg_print("The power of your god banishes evil!");
+				msg("The power of your god banishes evil!");
 			}
 			break;
 		}
@@ -1295,7 +1283,7 @@ static bool cast_priest_spell(int spell, int dir)
 
 		case PRAYER_ALTER_REALITY:
 		{
-			msg_print("The world changes!");
+			msg("The world changes!");
 
 			/* Leaving */
 			p_ptr->leaving = TRUE;

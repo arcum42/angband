@@ -41,7 +41,7 @@ static struct object_kind test_longsword = {
 
 	.effect = 0,
 	.gen_mult_prob = 0,
-	.flavor = 0,
+	.flavor = NULL,
 };
 
 static struct object_kind test_torch = {
@@ -72,7 +72,38 @@ static struct object_kind test_torch = {
 
 	.effect = 0,
 	.gen_mult_prob = 0,
-	.flavor = 0,
+	.flavor = NULL,
+};
+
+static struct object_kind test_gold = {
+	.name = "Test Gold",
+	.text = "Test gold [2].",
+	.kidx = 2,
+	.tval = TV_GOLD,
+	.sval = 0,
+	.pval = 0,
+
+	.to_h = 0,
+	.to_d = 0,
+	.to_a = 0,
+
+	.dd = 1,
+	.ds = 1,
+	.weight = 1,
+
+	.cost = 0,
+
+	.d_attr = 0,
+	.d_char = '$',
+
+	.alloc_prob = 0,
+	.alloc_min = 0,
+	.alloc_max = 0,
+	.level = 0,
+
+	.effect = 0,
+	.gen_mult_prob = 0,
+	.flavor = NULL,
 };
 
 static struct player_race test_race = {
@@ -118,7 +149,7 @@ static struct player_race test_race = {
 
 	.choice = 0xFF,
 
-	.hist = 0,
+	.history = NULL,
 };
 
 static struct player_class test_class = {

@@ -880,16 +880,20 @@ static bool visual_mode_command(ui_event_data ke, bool *visual_list_ptr,
 					*cur_char_ptr = c;
 
 					/* Move the frame */
-					if ((ddx[d] < 0) && *char_left_ptr > MAX(0, (int)c - frame_left))
+					if (ddx[d] < 0 &&
+							*char_left_ptr > MAX(0, (int)c - frame_left))
 						(*char_left_ptr)--;
-					if ((ddx[d] > 0) && *char_left_ptr + eff_width <=
-														MIN(255, (int)c + frame_right))
+					if ((ddx[d] > 0) &&
+							*char_left_ptr + (width / tile_width) <=
+									MIN(255, (int)c + frame_right))
 					(*char_left_ptr)++;
 
-					if ((ddy[d] < 0) && *attr_top_ptr > MAX(0, (int)a - frame_top))
+					if (ddy[d] < 0 &&
+							*attr_top_ptr > MAX(0, (int)a - frame_top))
 						(*attr_top_ptr)--;
-					if ((ddy[d] > 0) && *attr_top_ptr + eff_height <=
-													MIN(255, (int)a + frame_bottom))
+					if (ddy[d] > 0 &&
+							*attr_top_ptr + (height / tile_height) <=
+									MIN(255, (int)a + frame_bottom))
 						(*attr_top_ptr)++;
 
 					/* We need to always eat the input even if it is clipped,
@@ -930,6 +934,10 @@ static void display_monster(int col, int row, bool cursor, int oid)
 	byte attr = curs_attrs[CURS_KNOWN][(int)cursor];
 	byte a = r_ptr->x_attr;
 	byte c = r_ptr->x_char;
+
+	/* If uniques are purple, make it so */
+	if (OPT(purple_uniques) && rf_has(r_ptr->flags, RF_UNIQUE))
+		a = TERM_L_VIOLET;
 
 	/* Display the name */
 	c_prt(attr, r_ptr->name, row, col);
@@ -1445,8 +1453,8 @@ static void display_object(int col, int row, bool cursor, int oid)
 	/* Find graphics bits -- versions of the object_char and object_attr defines */
 	bool use_flavour = (k_ptr->flavor) && !(aware && k_ptr->tval == TV_SCROLL);
 
-	byte a = use_flavour ? flavor_info[k_ptr->flavor].x_attr : k_ptr->x_attr;
-	byte c = use_flavour ? flavor_info[k_ptr->flavor].x_char : k_ptr->x_char;
+	byte a = use_flavour ? k_ptr->flavor->x_attr : k_ptr->x_attr;
+	byte c = use_flavour ? k_ptr->flavor->x_char : k_ptr->x_char;
 
 	/* Display known artifacts differently */
 	if (of_has(k_ptr->flags, OF_INSTA_ART) && artifact_is_known(get_artifact_from_kind(k_ptr)))
@@ -1469,8 +1477,6 @@ static void display_object(int col, int row, bool cursor, int oid)
 	if ((aware && kind_is_squelched_aware(k_ptr)) ||
 		(!aware && kind_is_squelched_unaware(k_ptr)))
 		c_put_str(attr, "Yes", row, 46);
-	else if (aware && OPT(squelch_worthless) && !k_ptr->cost)
-		c_put_str(attr, "Yes*", row, 46);
 
 
 	/* Show autoinscription if around */
@@ -1564,8 +1570,7 @@ static int o_cmp_tval(const void *a, const void *b)
 			c = k_a->tried - k_b->tried;
 			if (c) return -c;
 
-			return strcmp(flavor_info[k_a->flavor].text,
-			              flavor_info[k_b->flavor].text);
+			return strcmp(k_a->flavor->text, k_b->flavor->text);
 	}
 
 	return k_a->sval - k_b->sval;
@@ -1580,7 +1585,7 @@ static char *o_xchar(int oid)
 	if (!k_ptr->flavor || k_ptr->aware)
 		return &k_ptr->x_char;
 	else
-		return &flavor_info[k_ptr->flavor].x_char;
+		return &k_ptr->flavor->x_char;
 }
 
 static byte *o_xattr(int oid)
@@ -1590,7 +1595,7 @@ static byte *o_xattr(int oid)
 	if (!k_ptr->flavor || k_ptr->aware)
 		return &k_ptr->x_attr;
 	else
-		return &flavor_info[k_ptr->flavor].x_attr;
+		return &k_ptr->flavor->x_attr;
 }
 
 /*
@@ -1598,22 +1603,16 @@ static byte *o_xattr(int oid)
  */
 static const char *o_xtra_prompt(int oid)
 {
-	object_kind *k_ptr = &k_info[oid];
-	s16b idx = get_autoinscription_index(oid);
+	object_kind *k = objkind_byid(oid);
 
 	const char *no_insc = ", 's' to toggle squelch, 'r'ecall, '{'";
 	const char *with_insc = ", 's' to toggle squelch, 'r'ecall, '{', '}'";
 
-
 	/* Forget it if we've never seen the thing */
-	if (k_ptr->flavor && !k_ptr->aware)
+	if (k->flavor && !k->aware)
 		return "";
 
-	/* If it's already inscribed */
-	if (idx != -1)
-		return with_insc;
-
-	return no_insc;
+	return k->note ? with_insc : no_insc;
 }
 
 /*
@@ -1621,44 +1620,39 @@ static const char *o_xtra_prompt(int oid)
  */
 static void o_xtra_act(char ch, int oid)
 {
-	object_kind *k_ptr = &k_info[oid];
-	s16b idx = get_autoinscription_index(oid);
+	object_kind *k = objkind_byid(oid);
 
 	/* Toggle squelch */
-	if (squelch_tval(k_ptr->tval) && (ch == 's' || ch == 'S'))
+	if (squelch_tval(k->tval) && (ch == 's' || ch == 'S'))
 	{
-		if (k_ptr->aware)
+		if (k->aware)
 		{
-			if (kind_is_squelched_aware(k_ptr))
-				kind_squelch_clear(k_ptr);
+			if (kind_is_squelched_aware(k))
+				kind_squelch_clear(k);
 			else
-				kind_squelch_when_aware(k_ptr);
+				kind_squelch_when_aware(k);
 		}
 		else
 		{
-			if (kind_is_squelched_unaware(k_ptr))
-				kind_squelch_clear(k_ptr);
+			if (kind_is_squelched_unaware(k))
+				kind_squelch_clear(k);
 			else
-				kind_squelch_when_unaware(k_ptr);
+				kind_squelch_when_unaware(k);
 		}
 
 		return;
 	}
 
 	/* Forget it if we've never seen the thing */
-	if (k_ptr->flavor && !k_ptr->aware)
+	if (k->flavor && !k->aware)
 		return;
 
 	/* Uninscribe */
-	if (ch == '}')
-	{
-		if (idx != -1) remove_autoinscription(oid);
-		return;
-	}
-
-	/* Inscribe */
-	else if (ch == '{')
-	{
+	if (ch == '}') {
+		if (k->note)
+			remove_autoinscription(oid);
+	} else if (ch == '{') {
+		/* Inscribe */
 		char note_text[80] = "";
 
 		/* Avoid the prompt getting in the way */
@@ -1668,14 +1662,14 @@ static void o_xtra_act(char ch, int oid)
 		prt("Inscribe with: ", 0, 0);
 
 		/* Default note */
-		if (idx != -1)
+		if (k->note)
 			strnfmt(note_text, sizeof(note_text), "%s", get_autoinscription(oid));
 
 		/* Get an inscription */
 		if (askfor_aux(note_text, sizeof(note_text), NULL))
 		{
 			/* Remove old inscription if existent */
-			if (idx != -1)
+			if (k->note)
 				remove_autoinscription(oid);
 
 			/* Add the autoinscription */

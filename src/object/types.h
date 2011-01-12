@@ -2,7 +2,6 @@
 #define INCLUDED_OBJECT_TYPES_H
 
 #include "z-bitflag.h"
-#include "z-quark.h"
 #include "z-rand.h"
 
 /**
@@ -21,7 +20,8 @@ typedef struct object_kind
 
 	byte tval;         /**< General object type (see TV_ macros) */
 	byte sval;         /**< Object sub-type (see SV_ macros) */
-	random_value pval; /**< Power for any flags which need it */
+	random_value pval[MAX_PVALS]; /**< Power for any flags which need it */
+	byte num_pvals;	   /**< Number of pvals in use on this item */
 
 	random_value to_h; /**< Bonus to hit */
 	random_value to_d; /**< Bonus to damage */
@@ -34,7 +34,8 @@ typedef struct object_kind
 
 	s32b cost;         /**< Object base cost */
 
-	bitflag flags[OF_SIZE];		/**< Flags */
+	bitflag flags[OF_SIZE];			/**< Flags */
+	bitflag pval_flags[MAX_PVALS][OF_SIZE];	/**< pval flags */
 
 	byte d_attr;       /**< Default object attribute */
 	char d_char;       /**< Default object character */
@@ -51,7 +52,7 @@ typedef struct object_kind
 	byte gen_mult_prob;      /**< Probability of generating more than one */
 	random_value stack_size; /**< Number to generate */
 
-	u16b flavor;         /**< Special object flavor (or zero) */
+	struct flavor *flavor;         /**< Special object flavor (or zero) */
 
 
 	/** Game-dependent **/
@@ -61,13 +62,15 @@ typedef struct object_kind
 
 	/** Also saved in savefile **/
 
-	u16b note;     /**< Autoinscription quark number */
+	char *note;
 
 	bool aware;    /**< Set if player is aware of the kind's effects */
 	bool tried;    /**< Set if kind has been tried */
 
 	byte squelch;  /**< Squelch settings */
 	bool everseen; /**< Set if kind has ever been seen (to despoilify squelch menus) */
+
+	struct spell *spells;
 } object_kind;
 
 
@@ -91,7 +94,8 @@ typedef struct artifact
 
 	byte tval;    /**< General artifact type (see TV_ macros) */
 	byte sval;    /**< Artifact sub-type (see SV_ macros) */
-	s16b pval;    /**< Power for any flags which need it */
+	s16b pval[MAX_PVALS];    /**< Power for any flags which need it */
+	byte num_pvals;/**< Number of pvals in use on this item */
 
 	s16b to_h;    /**< Bonus to hit */
 	s16b to_d;    /**< Bonus to damage */
@@ -106,6 +110,7 @@ typedef struct artifact
 	s32b cost;    /**< Artifact (pseudo-)worth */
 
 	bitflag flags[OF_SIZE];		/**< Flags */
+	bitflag pval_flags[MAX_PVALS][OF_SIZE];	/**< pval flags */
 
 	byte level;   /** Difficulty level for activation */
 	byte rarity;  /** Unused */
@@ -114,8 +119,8 @@ typedef struct artifact
 	byte alloc_max;  /** Maximum depth (will NEVER appear deeper) */
 
 	bool created;	/**< Whether this artifact has been created */
-	bool seen;	/**< Whether this artifact has been seen as an artifact */
-	bool everseen;	/**< Whether this artifact has ever been seen (this game or previous) */
+	bool seen;	/**< Whether this artifact has been seen this game */
+	bool everseen;	/**< Whether this artifact has ever been seen  */
 
 	u16b effect;     /**< Artifact activation (see effects.c) */
 	char *effect_msg;
@@ -140,28 +145,30 @@ typedef struct ego_item
 	s32b cost;			/* Ego-item "cost" */
 
 	bitflag flags[OF_SIZE];		/**< Flags */
+	bitflag pval_flags[MAX_PVALS][OF_SIZE];	/**< pval flags */
 
 	byte level;			/* Minimum level */
-	byte rarity;		/* Object rarity */
-	byte rating;		/* Level rating boost */
+	byte rarity;			/* Object rarity */
+	byte rating;			/* Level rating boost */
 
-	byte tval[EGO_TVALS_MAX]; /* Legal tval */
+	byte tval[EGO_TVALS_MAX]; 	/* Legal tval */
 	byte min_sval[EGO_TVALS_MAX];	/* Minimum legal sval */
 	byte max_sval[EGO_TVALS_MAX];	/* Maximum legal sval */
 
-	random_value to_h;     /* Extra to-hit bonus */
-	random_value to_d; /* Extra to-dam bonus */
-	random_value to_a; /* Extra to-ac bonus */
-	random_value pval; /* Extra pval bonus */
+	random_value to_h;     		/* Extra to-hit bonus */
+	random_value to_d; 		/* Extra to-dam bonus */
+	random_value to_a; 		/* Extra to-ac bonus */
+	random_value pval[MAX_PVALS]; 	/* Extra pval bonus */
+	byte num_pvals;			/* Number of pvals used */
 
-	byte min_to_h;		/* Minimum to-hit value */
-	byte min_to_d;		/* Minimum to-dam value */
-	byte min_to_a;		/* Minimum to-ac value */
-	byte min_pval;		/* Minimum pval */
+	byte min_to_h;			/* Minimum to-hit value */
+	byte min_to_d;			/* Minimum to-dam value */
+	byte min_to_a;			/* Minimum to-ac value */
+	byte min_pval[MAX_PVALS];	/* Minimum pval */
 
 	byte xtra;			/* Extra sustain/resist/power */
 
-	bool everseen;		/* Do not spoil squelch menus */
+	bool everseen;			/* Do not spoil squelch menus */
 } ego_item_type;
 
 
@@ -170,9 +177,6 @@ typedef struct ego_item
  * Object information, for a specific object.
  *
  * Note that a "discount" on an item is permanent and never goes away.
- *
- * Note that inscriptions are now handled via the "quark_str()" function
- * applied to the "note" field, which will return NULL if "note" is zero.
  *
  * Note that "object" records are "copied" on a fairly regular basis,
  * and care must be taken when handling such objects.
@@ -204,15 +208,17 @@ typedef struct object
 	byte tval;			/* Item type (from kind) */
 	byte sval;			/* Item sub-type (from kind) */
 
-	s16b pval;			/* Item extra-parameter */
+	s16b pval[MAX_PVALS];		/* Item extra-parameter */
+	byte num_pvals;			/* Number of pvals in use */
 
-	s16b weight;		/* Item weight */
+	s16b weight;			/* Item weight */
 
 	byte name1;			/* Artifact type, if any */
 	byte name2;			/* Ego-Item type, if any */
 
 	bitflag flags[OF_SIZE];		/**< Flags */
 	bitflag known_flags[OF_SIZE];	/**< Player-known flags */
+	bitflag pval_flags[MAX_PVALS][OF_SIZE];	/**< pval flags */
 	u16b ident;			/* Special flags */
 
 	s16b ac;			/* Normal AC */
@@ -226,6 +232,7 @@ typedef struct object
 
 	byte number;		/* Number of items */
 	byte marked;		/* Object is marked */
+	bool ignore;		/* Object is ignored */
 
 	s16b next_o_idx;	/* Next object in stack (if any) */
 	s16b held_m_idx;	/* Monster holding us (if any) */
@@ -234,7 +241,7 @@ typedef struct object
 	byte origin_depth;  /* What depth the item was found at */
 	u16b origin_xtra;   /* Extra information about origin */
 
-	quark_t note;			/* Inscription index */
+	char *note;
 } object_type;
 
 typedef struct flavor {
@@ -252,29 +259,5 @@ typedef struct flavor {
 	char x_char;    /* Desired flavor character */
 } flavor_type;
 
-/*
- * Slay type.  Used for the global table of brands/slays and their effects.
- */
-typedef struct
-{
-	int slay_flag;		/* Object flag for the slay */
-	int monster_flag;	/* Which monster flag(s) make it vulnerable */
-	int resist_flag;	/* Which monster flag(s) make it resist */
-	int mult;		/* Slay multiplier */
-	const char *range_verb;	/* attack verb for ranged hits */
-	const char *melee_verb; /* attack verb for melee hits */
-	const char *active_verb; /* verb for when the object is active */
-	const char *desc;	/* description of vulnerable creatures */
-	const char *brand;	/* name of brand */
-} slay_t;
-
-/*
- * Slay cache. Used for looking up slay values in obj-power.c
- */
-typedef struct
-{
-	bitflag flags[OF_SIZE];   /* Combination of slays and brands */
-	s32b value;            /* Value of this combination */
-} flag_cache;
 
 #endif /* INCLUDED_OBJECT_TYPES_H */

@@ -69,7 +69,7 @@ static void remove_old_dump(const char *cur_fname, const char *mark)
 	new_file = file_open(new_fname, MODE_WRITE, FTYPE_TEXT);
 	if (!new_file)
 	{
-		msg_format("Failed to create file %s", new_fname);
+		msg("Failed to create file %s", new_fname);
 		return;
 	}
 
@@ -152,19 +152,16 @@ static void pref_footer(ang_file *fff, const char *mark)
 /* XXX should be renamed dump_* */
 void autoinsc_dump(ang_file *fff)
 {
-	int i;
-	if (!inscriptions) return;
+	struct object_kind *k;
 
 	file_putf(fff, "# Autoinscription settings\n");
 	file_putf(fff, "# B:item kind:inscription\n\n");
 
-	for (i = 0; i < inscriptions_count; i++)
-	{
-		object_kind *k_ptr = &k_info[inscriptions[i].kind_idx];
-
-		file_putf(fff, "# Autoinscription for %s\n", k_ptr->name);
-		file_putf(fff, "B:%d:%s\n\n", inscriptions[i].kind_idx,
-		        quark_str(inscriptions[i].inscription_idx));
+	for (k = objkinds; k; k = k->next) {
+		if (!k->note)
+			continue;
+		file_putf(fff, "# Autoinscription for %s\n", k->name);
+		file_putf(fff, "B:%d:%s\n\n", k->kidx, k->note);
 	}
 
 	file_putf(fff, "\n");
@@ -402,16 +399,14 @@ void dump_features(ang_file *fff)
 /* Dump flavors */
 void dump_flavors(ang_file *fff)
 {
-	int i;
+	struct flavor *f;
 
-	for (i = 0; i < z_info->flavor_max; i++)
-	{
-		flavor_type *x_ptr = &flavor_info[i];
-		byte attr = x_ptr->x_attr;
-		byte chr = x_ptr->x_char;
+	for (f = flavors; f; f = f->next) {
+		byte attr = f->x_attr;
+		byte chr = f->x_char;
 
-		file_putf(fff, "# Item flavor: %s\n", x_ptr->text);
-		file_putf(fff, "L:%d:0x%02X:0x%02X\n\n", i, attr, chr);
+		file_putf(fff, "# Item flavor: %s\n", f->text);
+		file_putf(fff, "L:%d:0x%02X:0x%02X\n\n", f->fidx, attr, chr);
 	}
 }
 
@@ -814,18 +809,21 @@ static enum parser_error parse_prefs_s(struct parser *p)
 
 static enum parser_error parse_prefs_l(struct parser *p)
 {
-	int idx;
-	flavor_type *flavor;
+	unsigned int idx;
+	struct flavor *flavor;
 
 	struct prefs_data *d = parser_priv(p);
 	assert(d != NULL);
 	if (d->bypass) return PARSE_ERROR_NONE;
 
 	idx = parser_getuint(p, "idx");
-	if (idx >= z_info->flavor_max)
-		return PARSE_ERROR_OUT_OF_BOUNDS;
+	for (flavor = flavors; flavor; flavor = flavor->next)
+		if (flavor->fidx == idx)
+			break;
 
-	flavor = &flavor_info[idx];
+	if (!flavor)
+		quit_fmt("flavor for unknown idx %d", idx);
+
 	flavor->x_attr = (byte)parser_getint(p, "attr");
 	flavor->x_char = (char)parser_getint(p, "char");
 
@@ -1209,7 +1207,7 @@ errr process_pref_file_command(const char *s)
 static void print_error(const char *name, struct parser *p) {
 	struct parser_state s;
 	parser_getstate(p, &s);
-	msg_format("Parse error in %s line %d column %d: %s: %s", name,
+	msg("Parse error in %s line %d column %d: %s: %s", name,
 	           s.line, s.col, s.msg, parser_error_str[s.error]);
 	message_flush();
 }
@@ -1240,7 +1238,7 @@ bool process_pref_file(const char *name, bool quiet)
 	if (!f)
 	{
 		if (!quiet)
-			msg_format("Cannot open '%s'.", buf);
+			msg("Cannot open '%s'.", buf);
 	}
 	else
 	{

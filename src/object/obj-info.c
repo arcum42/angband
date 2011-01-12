@@ -1,4 +1,4 @@
-/*
+/**
  * File: obj-info.c
  * Purpose: Object description code.
  *
@@ -23,6 +23,7 @@
 #include "cmds.h"
 #include "tvalsval.h"
 #include "z-textblock.h"
+#include "slays.h"
 
 /*
  * Describes a flag-name pair.
@@ -117,17 +118,22 @@ static const flag_type resist_flags[] =
 	{ OF_RES_FIRE,  "fire" },
 	{ OF_RES_COLD,  "cold" },
 	{ OF_RES_POIS,  "poison" },
-	{ OF_RES_FEAR,  "fear" },
 	{ OF_RES_LIGHT, "light" },
 	{ OF_RES_DARK,  "dark" },
-	{ OF_RES_BLIND, "blindness" },
-	{ OF_RES_CONFU, "confusion" },
 	{ OF_RES_SOUND, "sound" },
 	{ OF_RES_SHARD, "shards" },
 	{ OF_RES_NEXUS, "nexus"  },
 	{ OF_RES_NETHR, "nether" },
 	{ OF_RES_CHAOS, "chaos" },
 	{ OF_RES_DISEN, "disenchantment" },
+};
+
+static const flag_type protect_flags[] =
+{
+	{ OF_RES_FEAR,  "fear" },
+	{ OF_RES_BLIND, "blindness" },
+	{ OF_RES_CONFU, "confusion" },
+	{ OF_RES_STUN,  "stunning" },
 };
 
 static const flag_type ignore_flags[] =
@@ -167,75 +173,6 @@ static const flag_type misc_flags[] =
 };
 
 
-/** Slays **/
-/*
- * Entries in this table should be in ascending order of multiplier, to
- * ensure that the highest one takes precedence
- * object flag, vulnerable flag, resist flag, multiplier, ranged verb,
- * melee verb, verb describing what the thing branded does when it is active,
- * description of affected creatures, brand
- */
-const slay_t slay_table[] =
-{
-	{ OF_SLAY_ANIMAL, RF_ANIMAL, FLAG_END,   2,
-	  "pierces",  "smite",   "glows",      "animals", NULL },
-	{ OF_SLAY_EVIL,   RF_EVIL,   FLAG_END,   2,
-	  "pierces",  "smite",   "glows",      "evil creatures", NULL },
-	{ OF_SLAY_UNDEAD, RF_UNDEAD, FLAG_END,   3,
-	  "pierces",  "smite",   "glows",      "undead", NULL },
-	{ OF_SLAY_DEMON,  RF_DEMON,  FLAG_END,   3,
-	  "pierces",  "smite",   "glows",      "demons", NULL },
-	{ OF_SLAY_ORC,    RF_ORC,    FLAG_END,   3,
-	  "pierces",  "smite",   "glows",      "orcs", NULL },
-	{ OF_SLAY_TROLL,  RF_TROLL,  FLAG_END,   3,
-	  "pierces",  "smite",   "glows",      "trolls", NULL },
-	{ OF_SLAY_GIANT,  RF_GIANT,  FLAG_END,   3,
-	  "pierces",  "smite",   "glows",      "giants", NULL },
-	{ OF_SLAY_DRAGON, RF_DRAGON, FLAG_END,   3,
-	  "pierces",  "smite",   "glows",      "dragons", NULL },
-	{ OF_BRAND_ACID,  FLAG_END,  RF_IM_ACID, 3,
-	  "corrodes", "corrode", "spits",      "creatures not resistant to acid", "acid" },
-	{ OF_BRAND_ELEC,  FLAG_END,  RF_IM_ELEC, 3,
-	  "zaps",     "zap",     "crackles",   "creatures not resistant to electricity", "lightning" },
-	{ OF_BRAND_FIRE,  FLAG_END,  RF_IM_FIRE, 3,
-	  "burns",    "burn",    "flares",     "creatures not resistant to fire", "flames" },
-	{ OF_BRAND_COLD,  FLAG_END,  RF_IM_COLD, 3,
-	  "freezes" , "freeze",  "grows cold", "creatures not resistant to cold", "frost" },
-	{ OF_BRAND_POIS,  FLAG_END,  RF_IM_POIS, 3,
-	  "poisons",  "poison",  "seethes",    "creatures not resistant to poison", "venom" },
-	{ OF_KILL_DRAGON, RF_DRAGON, FLAG_END,   5, 
-	 "deeply pierces",  "fiercely smite", "glows brightly", "dragons", NULL },
-	{ OF_KILL_DEMON,  RF_DEMON,  FLAG_END,   5,
-	  "deeply pierces", "fiercely smite", "glows brightly", "demons", NULL },
-	{ OF_KILL_UNDEAD, RF_UNDEAD, FLAG_END,   5,
-	  "deeply pierces", "fiercely smite", "glows brightly", "undead", NULL },
-	{ FLAG_END,       FLAG_END,  FLAG_END,   0, NULL, NULL, NULL, NULL, NULL }
-};
-
-/*
- * Slays which are in some sense duplicates. *Slay* dragon supercedes slay
- * dragon, for example.
- */
-const struct {
-	u16b minor;
-	u16b major;
-} slay_dups[] =
-{
-	{ OF_SLAY_DRAGON, OF_KILL_DRAGON },
-	{ OF_SLAY_DEMON, OF_KILL_DEMON },
-	{ OF_SLAY_UNDEAD, OF_KILL_UNDEAD },
-};
-
-
-/*
- * Helper function to externalise N_ELEMENTS(slay_table), which itself is not
- * available outside this compilation unit
- */
-size_t num_slays(void)
-{
-	return N_ELEMENTS(slay_table);
-}
-
 /*** Code that makes use of the data tables ***/
 
 /*
@@ -261,35 +198,40 @@ static bool describe_curses(textblock *tb, const object_type *o_ptr,
  * Describe stat modifications.
  */
 static bool describe_stats(textblock *tb, const object_type *o_ptr,
-		const bitflag flags[OF_SIZE], oinfo_detail_t mode)
+		bitflag flags[MAX_PVALS][OF_SIZE], oinfo_detail_t mode)
 {
 	cptr descs[N_ELEMENTS(pval_flags)];
-	size_t count;
+	size_t count, i;
 	bool full = mode & OINFO_FULL;
 	bool dummy = mode & OINFO_DUMMY;
+	bool search = FALSE;
 
-	if (!o_ptr->pval && !dummy)
+	if (!o_ptr->num_pvals && !dummy)
 		return FALSE;
 
-	count = info_collect(tb, pval_flags, N_ELEMENTS(pval_flags), flags, descs);
+	for (i = 0; i < o_ptr->num_pvals; i++) {
+		count = info_collect(tb, pval_flags, N_ELEMENTS(pval_flags), flags[i], descs);
 
-	if (count)
-	{
-		if ((object_pval_is_visible(o_ptr) || full) && !dummy)
-			textblock_append_c(tb, (o_ptr->pval > 0) ? TERM_L_GREEN : TERM_RED,
-					"%+i ", o_ptr->pval);
-		else
-			textblock_append(tb, "Affects your ");
+		if (count)
+		{
+			if ((object_this_pval_is_visible(o_ptr, i) || full) && !dummy)
+				textblock_append_c(tb, (o_ptr->pval[i] > 0) ? TERM_L_GREEN : TERM_RED,
+					"%+i ", o_ptr->pval[i]);
+			else
+				textblock_append(tb, "Affects your ");
 
-		info_out_list(tb, descs, count);
+			info_out_list(tb, descs, count);
+		}
+		if (of_has(flags[i], OF_SEARCH))
+			search = TRUE;
 	}
 
-	if (of_has(flags, OF_SEARCH))
+	if (search)
 	{
-		if ((object_pval_is_visible(o_ptr) || full) && !dummy)
+		if ((object_this_pval_is_visible(o_ptr, which_pval(o_ptr, OF_SEARCH)) || full) && !dummy)
 		{
-			textblock_append_c(tb, (o_ptr->pval > 0) ? TERM_L_GREEN : TERM_RED,
-				"%+i%% ", o_ptr->pval * 5);
+			textblock_append_c(tb, (o_ptr->pval[which_pval(o_ptr, OF_SEARCH)] > 0) ? TERM_L_GREEN : TERM_RED,
+				"%+i%% ", o_ptr->pval[which_pval(o_ptr, OF_SEARCH)] * 5);
 			textblock_append(tb, "to searching.\n");
 		}
 		else if (count)
@@ -309,6 +251,7 @@ static bool describe_immune(textblock *tb, const bitflag flags[OF_SIZE])
 {
 	const char *i_descs[N_ELEMENTS(immunity_flags)];
 	const char *r_descs[N_ELEMENTS(resist_flags)];
+	const char *p_descs[N_ELEMENTS(protect_flags)];
 	const char *v_descs[N_ELEMENTS(vuln_flags)];
 	size_t count;
 
@@ -331,6 +274,16 @@ static bool describe_immune(textblock *tb, const bitflag flags[OF_SIZE])
 	{
 		textblock_append(tb, "Provides resistance to ");
 		info_out_list(tb, r_descs, count);
+		prev = TRUE;
+	}
+
+	/* Protections */
+	count = info_collect(tb, protect_flags, N_ELEMENTS(protect_flags),
+			flags, p_descs);
+	if (count)
+	{
+		textblock_append(tb, "Provides protection from ");
+		info_out_list(tb, p_descs, count);
 		prev = TRUE;
 	}
 
@@ -417,17 +370,9 @@ static bool describe_slays(textblock *tb, const bitflag flags[OF_SIZE],
 		int tval)
 {
 	bool printed = FALSE;
-
-	const char *slay_descs[N_ELEMENTS(slay_table)];
-	const char *kill_descs[N_ELEMENTS(slay_table)];
-	const char *brand_descs[N_ELEMENTS(slay_table)];
-	const slay_t *s_ptr;
+	const char *slay_descs[SL_MAX] = { 0 };
 	bitflag slay_mask[OF_SIZE], kill_mask[OF_SIZE], brand_mask[OF_SIZE];
-
-	size_t x = 0;
-	size_t y = 0;
-	size_t z = 0;
-
+	size_t count;
 	bool fulldesc;
 
 	flags_init(slay_mask, OF_SIZE, OF_SLAY_MASK, FLAG_END);
@@ -441,87 +386,44 @@ static bool describe_slays(textblock *tb, const bitflag flags[OF_SIZE],
 	else
 		fulldesc = TRUE;
 
-	for (s_ptr = slay_table; s_ptr->slay_flag; s_ptr++)
-	{
-		if (!of_has(flags, s_ptr->slay_flag)) continue;
-
-		if (of_has(slay_mask, s_ptr->slay_flag))
-			slay_descs[x++] = s_ptr->desc;
-		else if (of_has(kill_mask, s_ptr->slay_flag))
-			kill_descs[y++] = s_ptr->desc;
-		else if (of_has(brand_mask, s_ptr->slay_flag))
-			brand_descs[z++] = s_ptr->brand;
-	}
-
 	/* Slays */
-	if (x)
+	count = list_slays(flags, slay_mask, slay_descs, NULL, NULL, TRUE);
+	if (count)
 	{
 		if (fulldesc)
 			textblock_append(tb, "It causes your melee attacks to slay ");
 		else
 			textblock_append(tb, "Slays ");
-		info_out_list(tb, slay_descs, x);
+		info_out_list(tb, slay_descs, count);
 		printed = TRUE;
 	}
 
 	/* Kills */
-	if (y)
+	count = list_slays(flags, kill_mask, slay_descs, NULL, NULL, TRUE);
+	if (count)
 	{
 		if (fulldesc)
 			textblock_append(tb, "It causes your melee attacks to *slay* ");
 		else
 			textblock_append(tb, "*Slays* ");
-		info_out_list(tb, kill_descs, y);
+		info_out_list(tb, slay_descs, count);
 		printed = TRUE;
 	}
 
 	/* Brands */
-	if (z)
+	count = list_slays(flags, brand_mask, NULL, slay_descs, NULL, TRUE);
+	if (count)
 	{
 		if (fulldesc)
 			textblock_append(tb, "It brands your melee attacks with ");
 		else
 			textblock_append(tb, "Branded with ");
-		info_out_list(tb, brand_descs, z);
+		info_out_list(tb, slay_descs, count);
 		printed = TRUE;
 	}
 
 	return printed;
 }
-
-
-
-/*
- * list[] and mult[] must be > 16 in size
- */
-static int collect_slays(const char *desc[], int mult[], bitflag *flags)
-{
-	int cnt = 0;
-	u16b i;
-	const slay_t *s_ptr;
-
-	/* Remove "duplicate" flags e.g. *slay* and slay the same
-	 * monster type
-	 */
-	for (i = 0; i < N_ELEMENTS(slay_dups); i++) {
-		if (of_has(flags, slay_dups[i].minor) &&
-				of_has(flags, slay_dups[i].major)) {
-			of_off(flags, slay_dups[i].minor);
-		}
-	}
-
-	/* Collect slays */
-	for (s_ptr = slay_table; s_ptr->slay_flag; s_ptr++) {
-		if (of_has(flags, s_ptr->slay_flag)) {
-			mult[cnt] = s_ptr->mult;
-			desc[cnt++] = s_ptr->desc;
-		}
-	}
-
-	return cnt;
-}
-
-
 
 /*
  * Account for criticals in the calculation of melee prowess
@@ -594,9 +496,9 @@ static bool describe_combat(textblock *tb, const object_type *o_ptr,
 {
 	bool full = mode & OINFO_FULL;
 
-	const char *desc[16];
+	const char *desc[SL_MAX] = { 0 };
 	int i;
-	int mult[16];
+	int mult[SL_MAX];
 	int cnt, dam, total_dam, plus = 0;
 	int xtra_postcrit = 0, xtra_precrit = 0;
 	int crit_mult, crit_div, crit_add;
@@ -604,8 +506,7 @@ static bool describe_combat(textblock *tb, const object_type *o_ptr,
 	int str_done = -1;
 	object_type *j_ptr = &p_ptr->inventory[INVEN_BOW];
 
-	bitflag f[OF_SIZE];
-	bitflag tmp_f[OF_SIZE];
+	bitflag f[OF_SIZE], tmp_f[OF_SIZE], mask[OF_SIZE];
 
 	bool weapon = (wield_slot(o_ptr) == INVEN_WIELD);
 	bool ammo   = (p_ptr->state.ammo_tval == o_ptr->tval) &&
@@ -627,10 +528,11 @@ static bool describe_combat(textblock *tb, const object_type *o_ptr,
 		return TRUE;
 	}
 
-	if (full)
+	if (full) {
 		object_flags(o_ptr, f);
-	else
+	} else {
 		object_flags_known(o_ptr, f);
+	}
 
 	textblock_append_c(tb, TERM_L_WHITE, "Combat info:\n");
 
@@ -687,11 +589,12 @@ static bool describe_combat(textblock *tb, const object_type *o_ptr,
 			object_flags_known(&p_ptr->inventory[i], tmp_f);
 
 			if (of_has(tmp_f, OF_BLOWS))
-				extra_blows += p_ptr->inventory[i].pval;
+				extra_blows += p_ptr->inventory[i].pval[which_pval(&p_ptr->inventory[i], OF_BLOWS)];
 		}
 
 		/* Then we add blows from the weapon being examined */
-		if (of_has(f, OF_BLOWS)) extra_blows += o_ptr->pval;
+		if (of_has(f, OF_BLOWS))
+			extra_blows += o_ptr->pval[which_pval(o_ptr, OF_BLOWS)];
 
 		/* Then we check for extra "real" blows */
 		for (dex_plus = 0; dex_plus < dex_plus_bound; dex_plus++)
@@ -776,7 +679,9 @@ static bool describe_combat(textblock *tb, const object_type *o_ptr,
 
 	if (ammo) multiplier = p_ptr->state.ammo_mult;
 
-	cnt = collect_slays(desc, mult, f);
+	flags_init(mask, OF_SIZE, OF_ALL_SLAY_MASK, FLAG_END);
+
+	cnt = list_slays(f, mask, desc, NULL, mult, TRUE);
 	for (i = 0; i < cnt; i++)
 	{
 		int melee_adj_mult = ammo ? 0 : 1; /* ammo mult adds fully, melee mult is times 1, so adds 1 less */
@@ -932,7 +837,7 @@ static bool describe_food(textblock *tb, const object_type *o_ptr,
 {
 	/* Describe boring bits */
 	if ((o_ptr->tval == TV_FOOD || o_ptr->tval == TV_POTION) &&
-		o_ptr->pval)
+		o_ptr->pval[DEFAULT_PVAL])
 	{
 		/* Sometimes adjust for player speed */
 		int multiplier = extract_energy[p_ptr->state.speed];
@@ -940,7 +845,7 @@ static bool describe_food(textblock *tb, const object_type *o_ptr,
 
 		if (object_is_known(o_ptr) || full) {
 			textblock_append(tb, "Nourishes for around ");
-			textblock_append_c(tb, TERM_L_GREEN, "%d", (o_ptr->pval / 2) *
+			textblock_append_c(tb, TERM_L_GREEN, "%d", (o_ptr->pval[DEFAULT_PVAL] / 2) *
 				multiplier / 10);
 			textblock_append(tb, " turns.\n");
 		} else {
@@ -1207,7 +1112,7 @@ bool describe_origin(textblock *tb, const object_type *o_ptr)
 static void describe_flavor_text(textblock *tb, const object_type *o_ptr)
 {
 	/* Display the known artifact description */
-	if (!OPT(adult_randarts) && o_ptr->name1 &&
+	if (!OPT(birth_randarts) && o_ptr->name1 &&
 			object_is_known(o_ptr) && a_info[o_ptr->name1].text)
 	{
 		textblock_append(tb, "%s\n\n", a_info[o_ptr->name1].text);
@@ -1261,6 +1166,7 @@ bool describe_ego(textblock *tb, const object_type *o_ptr)
 static textblock *object_info_out(const object_type *o_ptr, oinfo_detail_t mode)
 {
 	bitflag flags[OF_SIZE];
+	bitflag pval_flags[MAX_PVALS][OF_SIZE];
 	bool something = FALSE;
 	bool known = object_is_known(o_ptr);
 
@@ -1272,10 +1178,13 @@ static textblock *object_info_out(const object_type *o_ptr, oinfo_detail_t mode)
 	textblock *tb = textblock_new();
 
 	/* Grab the object flags */
-	if (full)
+	if (full) {
 		object_flags(o_ptr, flags);
-	else
+		object_pval_flags(o_ptr, pval_flags);
+	} else {
 		object_flags_known(o_ptr, flags);
+		object_pval_flags_known(o_ptr, pval_flags);
+	}
 
 	if (subjective) describe_origin(tb, o_ptr);
 	if (!terse) describe_flavor_text(tb, o_ptr);
@@ -1287,7 +1196,7 @@ static textblock *object_info_out(const object_type *o_ptr, oinfo_detail_t mode)
 	}
 
 	if (describe_curses(tb, o_ptr, flags)) something = TRUE;
-	if (describe_stats(tb, o_ptr, flags, mode)) something = TRUE;
+	if (describe_stats(tb, o_ptr, pval_flags, mode)) something = TRUE;
 	if (describe_slays(tb, flags, o_ptr->tval)) something = TRUE;
 	if (describe_immune(tb, flags)) something = TRUE;
 	if (describe_ignores(tb, flags)) something = TRUE;

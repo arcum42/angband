@@ -27,6 +27,7 @@
 #include "monster/monster.h"
 #include "object/tvalsval.h"
 #include "prefs.h"
+#include "savefile.h"
 #include "spells.h"
 #include "target.h"
 
@@ -42,7 +43,7 @@ void dungeon_change_level(int dlev)
 	   according to how long we've been away */
 	if (!dlev && daycount)
 	{
-		if (OPT(cheat_xtra)) msg_print("Updating Shops...");
+		if (OPT(cheat_xtra)) msg("Updating Shops...");
 		while (daycount--)
 		{
 			int n;
@@ -61,7 +62,7 @@ void dungeon_change_level(int dlev)
 			if (one_in_(STORE_SHUFFLE))
 			{
 				/* Message */
-				if (OPT(cheat_xtra)) msg_print("Shuffling a Shopkeeper...");
+				if (OPT(cheat_xtra)) msg("Shuffling a Shopkeeper...");
 
 				/* Pick a random shop (except home) */
 				while (1)
@@ -75,7 +76,7 @@ void dungeon_change_level(int dlev)
 			}
 		}
 		daycount = 0;
-		if (OPT(cheat_xtra)) msg_print("Done.");
+		if (OPT(cheat_xtra)) msg("Done.");
 	}
 
 	/* Leaving */
@@ -246,7 +247,7 @@ static void recharged_notice(const object_type *o_ptr, bool all)
 	else if (o_ptr->note)
 	{
 		/* Find a '!' */
-		s = strchr(quark_str(o_ptr->note), '!');
+		s = strchr(o_ptr->note, '!');
 
 		/* Process notification request */
 		while (s)
@@ -275,18 +276,18 @@ static void recharged_notice(const object_type *o_ptr, bool all)
 	/* Notify the player */
 	if (o_ptr->number > 1)
 	{
-		if (all) msg_format("Your %s have recharged.", o_name);
-		else msg_format("One of your %s has recharged.", o_name);
+		if (all) msg("Your %s have recharged.", o_name);
+		else msg("One of your %s has recharged.", o_name);
 	}
 
 	/* Artifacts */
 	else if (o_ptr->name1)
 	{
-		msg_format("The %s has recharged.", o_name);
+		msg("The %s has recharged.", o_name);
 	}
 
 	/* Single, non-artifact items */
-	else msg_format("Your %s has recharged.", o_name);
+	else msg("Your %s has recharged.", o_name);
 }
 
 
@@ -479,7 +480,7 @@ static void decrease_timeouts(void)
 /*
  * Handle certain things once every 10 game turns
  */
-static void process_world(void)
+static void process_world(struct cave *c)
 {
 	int i;
 
@@ -514,14 +515,14 @@ static void process_world(void)
 
 			/* Day breaks */
 			if (dawn)
-				msg_print("The sun has risen.");
+				msg("The sun has risen.");
 
 			/* Night falls */
 			else
-				msg_print("The sun has fallen.");
+				msg("The sun has fallen.");
 
 			/* Illuminate */
-			town_illuminate(dawn);
+			cave_illuminate(c, dawn);
 		}
 	}
 
@@ -542,7 +543,7 @@ static void process_world(void)
 	if (one_in_(MAX_M_ALLOC_CHANCE))
 	{
 		/* Make a new monster */
-		(void)alloc_monster(MAX_SIGHT + 5, FALSE, p_ptr->depth);
+		(void)alloc_monster(cave, loc(p_ptr->px, p_ptr->py), MAX_SIGHT + 5, FALSE, p_ptr->depth);
 	}
 
 	/* Hack -- Check for creature regeneration */
@@ -617,7 +618,7 @@ static void process_world(void)
 		if (!p_ptr->timed[TMD_PARALYZED] && one_in_(10))
 		{
 			/* Message */
-			msg_print("You faint from the lack of food.");
+			msg("You faint from the lack of food.");
 			disturb(1, 0);
 
 			/* Hack -- faint (bypass free action) */
@@ -742,14 +743,14 @@ static void process_world(void)
 			else if (o_ptr->timeout == 0)
 			{
 				disturb(0, 0);
-				msg_print("Your light has gone out!");
+				msg("Your light has gone out!");
 			}
 
 			/* The light is getting dim */
 			else if ((o_ptr->timeout < 100) && (!(o_ptr->timeout % 10)))
 			{
 				disturb(0, 0);
-				msg_print("Your light is growing faint.");
+				msg("Your light is growing faint.");
 			}
 		}
 	}
@@ -805,12 +806,12 @@ static void process_world(void)
 			/* Determine the level */
 			if (p_ptr->depth)
 			{
-				message_format(MSG_TPLEVEL, 0, "You feel yourself yanked upwards!");
+				msgt(MSG_TPLEVEL, "You feel yourself yanked upwards!");
 				dungeon_change_level(0);
 			}
 			else
 			{
-				message_format(MSG_TPLEVEL, 0, "You feel yourself yanked downwards!");
+				msgt(MSG_TPLEVEL, "You feel yourself yanked downwards!");
 
 				/* New depth - back to max depth or 1, whichever is deeper */
 				dungeon_change_level(p_ptr->max_depth < 1 ? 1: p_ptr->max_depth);
@@ -972,7 +973,7 @@ static void process_player(void)
 			disturb(0, 0);
 
 			/* Hack -- Show a Message */
-			msg_print("Cancelled.");
+			msg("Cancelled.");
 		}
 	}
 
@@ -1028,11 +1029,13 @@ static void process_player(void)
 		/* Picking up objects */
 		else if (p_ptr->notice & PN_PICKUP)
 		{
-			/* Recursively call the pickup function, use energy */
-			p_ptr->energy_use = py_pickup(0) * 10;
+			p_ptr->energy_use = do_autopickup() * 10;
 			if (p_ptr->energy_use > 100)
 				p_ptr->energy_use = 100;
 			p_ptr->notice &= ~(PN_PICKUP);
+			
+			/* Appropriate time for the player to see objects */
+			event_signal(EVENT_SEEFLOOR);
 		}
 
 		/* Resting */
@@ -1138,7 +1141,7 @@ static void process_player(void)
 					shimmer_monsters = TRUE;
 
 					/* Redraw regardless */
-					light_spot(m_ptr->fy, m_ptr->fx);
+					cave_light_spot(cave, m_ptr->fy, m_ptr->fx);
 				}
 			}
 
@@ -1330,7 +1333,7 @@ void idle_update(void)
  * This function will not exit until the level is completed,
  * the user dies, or the game is terminated.
  */
-static void dungeon(void)
+static void dungeon(struct cave *c)
 {
 	monster_type *m_ptr;
 	int i;
@@ -1354,7 +1357,7 @@ static void dungeon(void)
 	target_set_monster(0);
 
 	/* Cancel the health bar */
-	health_track(0);
+	health_track(p_ptr, 0);
 
 
 	/* Reset shimmer flags */
@@ -1505,7 +1508,7 @@ static void dungeon(void)
     		do_animation(); 
 
 			/* process monster with even more energy first */
-			process_monsters((byte)(p_ptr->energy + 1));
+			process_monsters(c, (byte)(p_ptr->energy + 1));
 
 			/* if still alive */
 			if (!p_ptr->leaving)
@@ -1536,7 +1539,7 @@ static void dungeon(void)
 
 
 		/* Process all of the monsters */
-		process_monsters(100);
+		process_monsters(c, 100);
 
 		/* Notice stuff */
 		if (p_ptr->notice) notice_stuff();
@@ -1555,7 +1558,7 @@ static void dungeon(void)
 
 
 		/* Process the world */
-		process_world();
+		process_world(c);
 
 		/* Notice stuff */
 		if (p_ptr->notice) notice_stuff();
@@ -1674,24 +1677,20 @@ void play_game(void)
 
 	p_ptr->is_dead = TRUE;
 
-	if (savefile[0] && file_exists(savefile))
-	{
-		bool ok = old_load();
-		if (!ok) quit("broken savefile");
+	if (savefile[0] && file_exists(savefile)) {
+		if (!savefile_load(savefile))
+			quit("broken savefile");
 
-		if (p_ptr->is_dead && arg_wizard)
-		{
-			p_ptr->is_dead = FALSE;
-			p_ptr->noscore |= NOSCORE_WIZARD;
+		if (p_ptr->is_dead) {
+			if (arg_wizard) {
+				p_ptr->is_dead = FALSE;
+				p_ptr->chp = p_ptr->mhp;
+				p_ptr->noscore |= NOSCORE_WIZARD;
+			} else {
+				existing_dead_save = TRUE;
+			}
 		}
-
-		else if (p_ptr->is_dead)
-		{
-			existing_dead_save = TRUE;
-		}
-	}
-	else
-	{
+	} else {
 		existing_dead_save = TRUE;
 	}
 
@@ -1754,7 +1753,7 @@ void play_game(void)
 		player_birth(p_ptr->ht_birth ? TRUE : FALSE);
 
 		/* Randomize the artifacts */
-		if (OPT(adult_randarts))
+		if (OPT(birth_randarts))
 			do_randart(seed_randart, TRUE);
 	}
 
@@ -1815,7 +1814,8 @@ void play_game(void)
 
 
 	/* Generate a dungeon level if needed */
-	if (!character_dungeon) generate_cave();
+	if (!character_dungeon)
+		cave_generate(cave, p_ptr);
 
 
 	/* Character is now "complete" */
@@ -1842,8 +1842,7 @@ void play_game(void)
 		play_ambient_sound();
 
 		/* Process the level */
-		dungeon();
-
+		dungeon(cave);
 
 		/* Notice stuff */
 		if (p_ptr->notice) notice_stuff();
@@ -1859,7 +1858,7 @@ void play_game(void)
 		target_set_monster(0);
 
 		/* Cancel the health bar */
-		health_track(0);
+		health_track(p_ptr, 0);
 
 
 		/* Forget the view */
@@ -1889,7 +1888,7 @@ void play_game(void)
 				p_ptr->noscore |= NOSCORE_WIZARD;
 
 				/* Message */
-				msg_print("You invoke wizard mode and cheat death.");
+				msg("You invoke wizard mode and cheat death.");
 				message_flush();
 
 				/* Cheat death */
@@ -1920,7 +1919,7 @@ void play_game(void)
 				if (p_ptr->word_recall)
 				{
 					/* Message */
-					msg_print("A tension leaves the air around you...");
+					msg("A tension leaves the air around you...");
 					message_flush();
 
 					/* Hack -- Prevent recall */
@@ -1942,7 +1941,7 @@ void play_game(void)
 		if (p_ptr->is_dead) break;
 
 		/* Make a new level */
-		generate_cave();
+		cave_generate(cave, p_ptr);
 	}
 
 	/* Disallow big cursor */

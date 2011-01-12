@@ -20,6 +20,7 @@
 #include "object/tvalsval.h"
 #include "init.h"
 #include "effects.h"
+#include "slays.h"
 
 /*
  * Original random artifact generator (randart) by Greg Wooledge.
@@ -449,7 +450,7 @@ static s16b choose_item(int a_idx)
 	int tval = 0;
 	int sval = 0;
 	object_kind *k_ptr;
-	int i;
+	int i = 0;
 	s16b k_idx, r;
 
 	/*
@@ -471,7 +472,7 @@ static s16b choose_item(int a_idx)
 		tval == TV_FOOD || tval == TV_MAGIC_BOOK || tval ==
 		TV_PRAYER_BOOK || tval == TV_GOLD || tval == TV_LIGHT ||
 		tval == TV_AMULET || tval == TV_RING || sval == SV_GROND ||
-		sval == SV_MORGOTH)
+		sval == SV_MORGOTH || k_info[i].alloc_prob == 0)
 	{
 		r = randint1(base_freq[z_info->k_max - 1]);
 		i = 0;
@@ -487,7 +488,7 @@ static s16b choose_item(int a_idx)
 	k_ptr = &k_info[k_idx];
 	a_ptr->tval = k_ptr->tval;
 	a_ptr->sval = k_ptr->sval;
-	a_ptr->pval = randcalc(k_ptr->pval, 0, MINIMISE);
+	a_ptr->pval[DEFAULT_PVAL] = randcalc(k_ptr->pval[DEFAULT_PVAL], 0, MINIMISE);
 	a_ptr->to_h = randcalc(k_ptr->to_h, 0, MINIMISE);
 	a_ptr->to_d = randcalc(k_ptr->to_d, 0, MINIMISE);
 	a_ptr->to_a = randcalc(k_ptr->to_a, 0, MINIMISE);
@@ -496,6 +497,9 @@ static s16b choose_item(int a_idx)
 	a_ptr->ds = k_ptr->ds;
 	a_ptr->weight = k_ptr->weight;
 	of_copy(a_ptr->flags, k_ptr->flags);
+	for (i = 0; i < MAX_PVALS; i++)
+		of_copy(a_ptr->pval_flags[i], k_ptr->pval_flags[i]);
+	a_ptr->num_pvals = k_ptr->num_pvals;
 	a_ptr->effect = 0;
 
 	/* Artifacts ignore everything */
@@ -555,34 +559,34 @@ static void do_pval(artifact_type *a_ptr)
 	if (of_has(a_ptr->flags, OF_MIGHT)) factor++;
 	if (of_has(a_ptr->flags, OF_SHOTS)) factor++;
 
-	if (a_ptr->pval == 0)
+	if (a_ptr->pval[DEFAULT_PVAL] == 0)
 	{
 		/* Blows, might, shots handled separately */
 		if (factor > 1)
 		{
-			a_ptr->pval = (s16b)randint1(2);
+			a_ptr->pval[DEFAULT_PVAL] = (s16b)randint1(2);
 			/* Give it a shot at +3 */
-			if (INHIBIT_STRONG) a_ptr->pval = 3;
+			if (INHIBIT_STRONG) a_ptr->pval[DEFAULT_PVAL] = 3;
 		}
-		else a_ptr->pval = (s16b)randint1(4);
-		LOG_PRINT1("Assigned initial pval, value is: %d\n", a_ptr->pval);
+		else a_ptr->pval[DEFAULT_PVAL] = (s16b)randint1(4);
+		LOG_PRINT1("Assigned initial pval, value is: %d\n", a_ptr->pval[DEFAULT_PVAL]);
 	}
-	else if (a_ptr->pval < 0)
+	else if (a_ptr->pval[DEFAULT_PVAL] < 0)
 	{
 		if (one_in_(2))
 		{
-			a_ptr->pval--;
-			LOG_PRINT1("Decreasing pval by 1, new value is: %d\n", a_ptr->pval);
+			a_ptr->pval[DEFAULT_PVAL]--;
+			LOG_PRINT1("Decreasing pval by 1, new value is: %d\n", a_ptr->pval[DEFAULT_PVAL]);
 		}
 	}
-	else if (one_in_(a_ptr->pval * factor))
+	else if (one_in_(a_ptr->pval[DEFAULT_PVAL] * factor))
 	{
 		/*
 		 * CR: made this a bit rarer and diminishing with higher pval -
 		 * also rarer if item has blows/might/shots already
 		 */
-		a_ptr->pval++;
-		LOG_PRINT1("Increasing pval by 1, new value is: %d\n", a_ptr->pval);
+		a_ptr->pval[DEFAULT_PVAL]++;
+		LOG_PRINT1("Increasing pval by 1, new value is: %d\n", a_ptr->pval[DEFAULT_PVAL]);
 	}
 }
 
@@ -595,7 +599,7 @@ static void remove_contradictory(artifact_type *a_ptr)
 	if (of_has(a_ptr->flags, OF_IM_FIRE)) of_off(a_ptr->flags, OF_RES_FIRE);
 	if (of_has(a_ptr->flags, OF_IM_COLD)) of_off(a_ptr->flags, OF_RES_COLD);
 
-	if (a_ptr->pval < 0)
+	if (a_ptr->pval[DEFAULT_PVAL] < 0)
 	{
 		if (of_has(a_ptr->flags, OF_STR)) of_off(a_ptr->flags, OF_SUST_STR);
 		if (of_has(a_ptr->flags, OF_INT)) of_off(a_ptr->flags, OF_SUST_INT);
@@ -684,7 +688,7 @@ static void parse_frequencies(void)
 	object_kind *k_ptr;
 	s32b temp, temp2;
 	s16b k_idx;
-
+	bitflag mask[OF_SIZE];
 
 	LOG_PRINT("\n****** BEGINNING GENERATION OF FREQUENCIES\n\n");
 
@@ -733,7 +737,7 @@ static void parse_frequencies(void)
 			if(of_has(a_ptr->flags, OF_SHOTS))
 			{
 				/* Do we have 3 or more extra shots? (Unlikely) */
-				if(a_ptr->pval > 2)
+				if(a_ptr->pval[DEFAULT_PVAL] > 2)
 				{
 					LOG_PRINT("Adding 1 for supercharged shots (3 or more!)\n");
 
@@ -748,7 +752,7 @@ static void parse_frequencies(void)
 			if(of_has(a_ptr->flags, OF_MIGHT))
 			{
 				/* Do we have 3 or more extra might? (Unlikely) */
-				if(a_ptr->pval > 2)
+				if(a_ptr->pval[DEFAULT_PVAL] > 2)
 				{
 					LOG_PRINT("Adding 1 for supercharged might (3 or more!)\n");
 
@@ -764,25 +768,13 @@ static void parse_frequencies(void)
 			/* Brands or slays - count all together */
 			if (flags_test(a_ptr->flags, OF_SIZE, OF_ALL_SLAY_MASK, FLAG_END))
 			{
-				const slay_t *s_ptr;
-
 				/* We have some brands or slays - count them */
-				temp = 0;
-				temp2 = 0;
+				flags_init(mask, OF_SIZE, OF_BRAND_MASK, FLAG_END);
+				temp2 = list_slays(a_ptr->flags, mask, NULL, NULL, NULL, FALSE);
+				flags_init(mask, OF_SIZE, OF_ALL_SLAY_MASK, FLAG_END);
+				temp = list_slays(a_ptr->flags, mask, NULL, NULL, NULL,	FALSE)
+						- temp2;
 
-				for (s_ptr = slay_table; s_ptr->slay_flag; s_ptr++)
-				{
-					if (of_has(a_ptr->flags, s_ptr->slay_flag))
-					{
-						bitflag slay_kill_mask[OF_SIZE], brand_mask[OF_SIZE];
-
-						flags_init(brand_mask, OF_SIZE, OF_BRAND_MASK, FLAG_END);
-						flags_init(slay_kill_mask, OF_SIZE, OF_SLAY_MASK, OF_KILL_MASK, FLAG_END);
-
-						if (of_has(slay_kill_mask, s_ptr->slay_flag)) temp++;
-						if (of_has(brand_mask, s_ptr->slay_flag)) temp2++;
-					}
-				}
 				LOG_PRINT1("Adding %d for slays\n", temp);
 				LOG_PRINT1("Adding %d for brands\n", temp2);
 
@@ -901,26 +893,13 @@ static void parse_frequencies(void)
 			/* Brands or slays - count all together */
 			if (flags_test(a_ptr->flags, OF_SIZE, OF_ALL_SLAY_MASK, FLAG_END))
 			{
-				const slay_t *s_ptr;
-
 				/* We have some brands or slays - count them */
-				temp = 0;
-				temp2 = 0;
+                flags_init(mask, OF_SIZE, OF_BRAND_MASK, FLAG_END);
+                temp2 = list_slays(a_ptr->flags, mask, NULL, NULL, NULL, FALSE);
+                flags_init(mask, OF_SIZE, OF_ALL_SLAY_MASK, FLAG_END);
+                temp = list_slays(a_ptr->flags, mask, NULL, NULL, NULL, FALSE)
+						- temp2;
 
-				for (s_ptr = slay_table; s_ptr->slay_flag; s_ptr++)
-				{
-					if (of_has(a_ptr->flags, s_ptr->slay_flag))
-					{
-						bitflag slay_kill_mask[OF_SIZE], brand_mask[OF_SIZE];
-
-						flags_init(brand_mask, OF_SIZE, OF_BRAND_MASK, FLAG_END);
-						flags_init(slay_kill_mask, OF_SIZE, OF_SLAY_MASK, FLAG_END);
-						flags_set(slay_kill_mask, OF_SIZE, OF_KILL_MASK, FLAG_END);
-
-						if (of_has(slay_kill_mask, s_ptr->slay_flag)) temp++;
-						if (of_has(brand_mask, s_ptr->slay_flag)) temp2++;
-					}
-				}
 				LOG_PRINT1("Adding %d for slays\n", temp);
 				LOG_PRINT1("Adding %d for brands\n", temp2);
 
@@ -965,7 +944,7 @@ static void parse_frequencies(void)
 			if (of_has(a_ptr->flags, OF_BLOWS))
 			{
 				/* Do we have 3 or more extra blows? (Unlikely) */
-				if(a_ptr->pval > 2)
+				if(a_ptr->pval[DEFAULT_PVAL] > 2)
 				{
 					LOG_PRINT("Adding 1 for supercharged blows (3 or more!)\n");
 					(artprobs[ART_IDX_MELEE_BLOWS_SUPER])++;
@@ -1025,26 +1004,13 @@ static void parse_frequencies(void)
 			/* Brands or slays - count all together */
 			if (flags_test(a_ptr->flags, OF_SIZE, OF_ALL_SLAY_MASK, FLAG_END))
 			{
-				const slay_t *s_ptr;
-
 				/* We have some brands or slays - count them */
-				temp = 0;
-				temp2 = 0;
+                flags_init(mask, OF_SIZE, OF_BRAND_MASK, FLAG_END);
+                temp2 = list_slays(a_ptr->flags, mask, NULL, NULL, NULL, FALSE);
+                flags_init(mask, OF_SIZE, OF_ALL_SLAY_MASK, FLAG_END);
+                temp = list_slays(a_ptr->flags, mask, NULL, NULL, NULL, FALSE)
+						- temp2;
 
-				for (s_ptr = slay_table; s_ptr->slay_flag; s_ptr++)
-				{
-					if (of_has(a_ptr->flags, s_ptr->slay_flag))
-					{
-						bitflag slay_kill_mask[OF_SIZE], brand_mask[OF_SIZE];
-
-						flags_init(brand_mask, OF_SIZE, OF_BRAND_MASK, FLAG_END);
-						flags_init(slay_kill_mask, OF_SIZE, OF_SLAY_MASK, FLAG_END);
-						flags_set(slay_kill_mask, OF_SIZE, OF_KILL_MASK, FLAG_END);
-
-						if (of_has(slay_kill_mask, s_ptr->slay_flag)) temp++;
-						if (of_has(brand_mask, s_ptr->slay_flag)) temp2++;
-					}
-				}
 				LOG_PRINT1("Adding %d for slays\n", temp);
 				LOG_PRINT1("Adding %d for brands\n", temp2);
 
@@ -1298,7 +1264,7 @@ static void parse_frequencies(void)
 			 * small bonuses around +3 or so without unbalancing things.
 			 */
 
-			if (a_ptr->pval > 7)
+			if (a_ptr->pval[DEFAULT_PVAL] > 7)
 			{
 				/* Supercharge case */
 				LOG_PRINT("Adding 1 for supercharged speed bonus!\n");
@@ -1811,8 +1777,9 @@ static bool add_flag(artifact_type *a_ptr, int flag)
 static void add_pval_flag(artifact_type *a_ptr, int flag)
 {
 	of_on(a_ptr->flags, flag);
+	of_on(a_ptr->pval_flags[DEFAULT_PVAL], flag);
 	do_pval(a_ptr);
-	LOG_PRINT2("Adding ability: %s (now %+d)\n", flag_names[flag], a_ptr->pval);
+	LOG_PRINT2("Adding ability: %s (now %+d)\n", flag_names[flag], a_ptr->pval[DEFAULT_PVAL]);
 }
 
 /*
@@ -1825,8 +1792,9 @@ static bool add_fixed_pval_flag(artifact_type *a_ptr, int flag)
 		return FALSE;
 
 	of_on(a_ptr->flags, flag);
+	of_on(a_ptr->pval_flags[DEFAULT_PVAL], flag);
 	do_pval(a_ptr);
-	LOG_PRINT2("Adding ability: %s (now %+d)\n", flag_names[flag], a_ptr->pval);
+	LOG_PRINT2("Adding ability: %s (now %+d)\n", flag_names[flag], a_ptr->pval[DEFAULT_PVAL]);
 
 	return TRUE;
 }
@@ -1838,18 +1806,19 @@ static bool add_fixed_pval_flag(artifact_type *a_ptr, int flag)
 static bool add_first_pval_flag(artifact_type *a_ptr, int flag)
 {
 	of_on(a_ptr->flags, flag);
+	of_on(a_ptr->pval_flags[DEFAULT_PVAL], flag);
 
-	if (a_ptr->pval == 0)
+	if (a_ptr->pval[DEFAULT_PVAL] == 0)
 	{
-		a_ptr->pval = (s16b)randint1(4);
+		a_ptr->pval[DEFAULT_PVAL] = (s16b)randint1(4);
 		LOG_PRINT2("Adding ability: %s (first time) (now %+d)\n",
-		           flag_names[flag], a_ptr->pval);
+		           flag_names[flag], a_ptr->pval[DEFAULT_PVAL]);
 
 		return TRUE;
 	}
 
 	do_pval(a_ptr);
-	LOG_PRINT2("Adding ability: %s (now %+d)\n", flag_names[flag], a_ptr->pval);
+	LOG_PRINT2("Adding ability: %s (now %+d)\n", flag_names[flag], a_ptr->pval[DEFAULT_PVAL]);
 
 	return FALSE;
 }
@@ -1968,24 +1937,23 @@ static void add_high_resist(artifact_type *a_ptr)
 
 static void add_slay(artifact_type *a_ptr, bool brand)
 {
-	/* The last slay entry is a NULL slay_t */
-	int size = num_slays() - 1;
 	int count = 0;
-	const slay_t *s_ptr;
+	const struct slay *s_ptr;
+	bitflag mask[OF_SIZE];
 
-	for(count = 0; count < MAX_TRIES; count++)
-	{
-		s_ptr = &slay_table[randint0(size)];
-		if (brand && s_ptr->brand && !of_has(a_ptr->flags, s_ptr->slay_flag))
-		{
-			of_on(a_ptr->flags, s_ptr->slay_flag);
-			LOG_PRINT1("Adding brand: %s\n", s_ptr->brand);
-			return;
-		}
-		if (!brand && !s_ptr->brand && !of_has(a_ptr->flags, s_ptr->slay_flag))
-		{
-			of_on(a_ptr->flags, s_ptr->slay_flag);
-			LOG_PRINT1("Adding slay: %s\n", s_ptr->desc);
+	if (brand)
+		flags_init(mask, OF_SIZE, OF_BRAND_MASK, FLAG_END);
+	else
+		flags_init(mask, OF_SIZE, OF_SLAY_MASK, OF_KILL_MASK, FLAG_END);
+
+	for(count = 0; count < MAX_TRIES; count++) {
+		s_ptr = random_slay(mask);
+
+		if (!of_has(a_ptr->flags, s_ptr->object_flag)) {
+			of_on(a_ptr->flags, s_ptr->object_flag);
+
+			LOG_PRINT2("Adding %s: %s\n", s_ptr->brand ? "brand" : "slay",
+				s_ptr->brand ? s_ptr->brand : s_ptr->desc);
 			return;
 		}
 	}
@@ -2621,7 +2589,7 @@ static void try_supercharge(artifact_type *a_ptr, s32b target_power)
 		else if (randint0(z_info->a_max) < artprobs[ART_IDX_MELEE_BLOWS_SUPER])
 		{
 			of_on(a_ptr->flags, OF_BLOWS);
-			a_ptr->pval = 3;
+			a_ptr->pval[DEFAULT_PVAL] = 3;
 			LOG_PRINT("Supercharging melee blows! (+3 blows)\n");
 		}
 	}
@@ -2632,13 +2600,13 @@ static void try_supercharge(artifact_type *a_ptr, s32b target_power)
 		if (randint0(z_info->a_max) < artprobs[ART_IDX_BOW_SHOTS_SUPER])
 		{
 			of_on(a_ptr->flags, OF_SHOTS);
-			a_ptr->pval = 3;
+			a_ptr->pval[DEFAULT_PVAL] = 3;
 			LOG_PRINT("Supercharging shots for bow!  (3 extra shots)\n");
 		}
 		else if (randint0(z_info->a_max) < artprobs[ART_IDX_BOW_MIGHT_SUPER])
 		{
 			of_on(a_ptr->flags, OF_MIGHT);
-			a_ptr->pval = 3;
+			a_ptr->pval[DEFAULT_PVAL] = 3;
 			LOG_PRINT("Supercharging might for bow!  (3 extra might)\n");
 		}
 	}
@@ -2649,10 +2617,10 @@ static void try_supercharge(artifact_type *a_ptr, s32b target_power)
 		artprobs[ART_IDX_BOOT_SPEED]))
 	{
 		of_on(a_ptr->flags, OF_SPEED);
-		a_ptr->pval = 5 + randint0(6);
-		if (INHIBIT_WEAK) a_ptr->pval += randint1(3);
-		if (INHIBIT_STRONG) a_ptr->pval += 1 + randint1(6);
-		LOG_PRINT1("Supercharging speed for this item!  (New speed bonus is %d)\n", a_ptr->pval);
+		a_ptr->pval[DEFAULT_PVAL] = 5 + randint0(6);
+		if (INHIBIT_WEAK) a_ptr->pval[DEFAULT_PVAL] += randint1(3);
+		if (INHIBIT_STRONG) a_ptr->pval[DEFAULT_PVAL] += 1 + randint1(6);
+		LOG_PRINT1("Supercharging speed for this item!  (New speed bonus is %d)\n", a_ptr->pval[DEFAULT_PVAL]);
 	}
 
 	/* Big AC bonus */
@@ -2699,8 +2667,8 @@ static void do_curse(artifact_type *a_ptr)
 	if (one_in_(7))
 		of_on(a_ptr->flags, OF_TELEPORT);
 
-	if ((a_ptr->pval > 0) && one_in_(2))
-		a_ptr->pval = -a_ptr->pval;
+	if ((a_ptr->pval[DEFAULT_PVAL] > 0) && one_in_(2))
+		a_ptr->pval[DEFAULT_PVAL] = -a_ptr->pval[DEFAULT_PVAL];
 	if ((a_ptr->to_a > 0) && one_in_(2))
 		a_ptr->to_a = -a_ptr->to_a;
 	if ((a_ptr->to_h > 0) && one_in_(2))
@@ -2826,7 +2794,7 @@ static void scramble_artifact(int a_idx)
 
 		if (count >= MAX_TRIES)
 		{
-			msg_print("Warning! Couldn't get appropriate power level on base item.");
+			msg("Warning! Couldn't get appropriate power level on base item.");
 			LOG_PRINT("Warning! Couldn't get appropriate power level on base item.\n");
 		}
 	}
@@ -2839,7 +2807,7 @@ static void scramble_artifact(int a_idx)
 		k_ptr = &k_info[k_idx];
 
 		/* Clear the following fields; leave the rest alone */
-		a_ptr->pval = 0;
+		a_ptr->pval[DEFAULT_PVAL] = 0;
 		a_ptr->to_h = a_ptr->to_d = a_ptr->to_a = 0;
 		of_wipe(a_ptr->flags);
 
@@ -2951,7 +2919,7 @@ static void scramble_artifact(int a_idx)
 			 * We couldn't generate an artifact within the number of permitted
 			 * iterations.  Show a warning message.
 			 */
-			msg_format("Warning!  Couldn't get appropriate power level on artifact.");
+			msg("Warning!  Couldn't get appropriate power level on artifact.");
 			LOG_PRINT("Warning!  Couldn't get appropriate power level on artifact.\n");
 			message_flush();
 		}
@@ -3010,7 +2978,7 @@ static void scramble_artifact(int a_idx)
 	 * Add OF_HIDE_TYPE to all artifacts with nonzero pval because we're
 	 * too lazy to find out which ones need it and which ones don't.
 	 */
-	if (a_ptr->pval)
+	if (a_ptr->pval[DEFAULT_PVAL])
 		of_on(a_ptr->flags, OF_HIDE_TYPE);
 
 	/* Success */
@@ -3090,7 +3058,7 @@ static bool artifacts_acceptable(void)
 				gloves > 0 ? " gloves" : "",
 				boots > 0 ? " boots" : "");
 
-			msg_format("Restarting generation process: not enough%s", types);
+			msg("Restarting generation process: not enough%s", types);
 			LOG_PRINT1("Restarting generation process: not enough%s", types);
 		}
 		return FALSE;
@@ -3173,7 +3141,7 @@ errr do_randart(u32b randart_seed, bool full)
 			log_file = file_open(buf, MODE_WRITE, FTYPE_TEXT);
 			if (!log_file)
 			{
-				msg_print("Error - can't open randart.log for writing.");
+				msg("Error - can't open randart.log for writing.");
 				exit(1);
 			}
 		}
@@ -3201,7 +3169,7 @@ errr do_randart(u32b randart_seed, bool full)
 		{
 			if (!file_close(log_file))
 			{
-				msg_print("Error - can't close randart.log file.");
+				msg("Error - can't close randart.log file.");
 				exit(1);
 			}
 		}

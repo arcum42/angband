@@ -69,8 +69,8 @@ typedef struct birther /*lovely*/ birther; /*sometimes we think she's a dream*/
 struct birther
 {
 	byte sex;
-	byte race;
-	byte class;
+	const struct player_race *race;
+	const struct player_class *class;
 
 	s16b age;
 	s16b wt;
@@ -81,7 +81,7 @@ struct birther
 
 	s16b stat[A_MAX];
 
-	char history[250];
+	char *history;
 };
 
 
@@ -95,8 +95,8 @@ static void save_roller_data(birther *player)
 
 	/* Save the data */
 	player->sex = p_ptr->psex;
-	player->race = p_ptr->prace;
-	player->class = p_ptr->pclass;
+	player->race = p_ptr->race;
+	player->class = p_ptr->class;
 	player->age = p_ptr->age;
 	player->wt = p_ptr->wt_birth;
 	player->ht = p_ptr->ht_birth;
@@ -105,12 +105,9 @@ static void save_roller_data(birther *player)
 
 	/* Save the stats */
 	for (i = 0; i < A_MAX; i++)
-	{
 		player->stat[i] = p_ptr->stat_birth[i];
-	}
 
-	/* Save the history */
-	my_strcpy(player->history, p_ptr->history, sizeof(player->history));
+	player->history = p_ptr->history;
 }
 
 
@@ -139,8 +136,8 @@ static void load_roller_data(birther *player, birther *prev_player)
 
 	/* Load the data */
 	p_ptr->psex = player->sex;
-	p_ptr->prace = player->race;
-	p_ptr->pclass = player->class;
+	p_ptr->race = player->race;
+	p_ptr->class = player->class;
 	p_ptr->age = player->age;
 	p_ptr->wt = p_ptr->wt_birth = player->wt;
 	p_ptr->ht = p_ptr->ht_birth = player->ht;
@@ -155,8 +152,7 @@ static void load_roller_data(birther *player, birther *prev_player)
 	}
 
 	/* Load the history */
-	my_strcpy(p_ptr->history, player->history, sizeof(p_ptr->history));
-
+	p_ptr->history = player->history;
 
 	/*** Save the current data if the caller is interested in it. ***/
 	if (prev_player) *prev_player = temp;
@@ -173,7 +169,7 @@ static void load_roller_data(birther *player, birther *prev_player)
 static int adjust_stat(int value, int amount)
 {
 	/* Negative amounts or maximize mode */
-	if ((amount < 0) || OPT(adult_maximize))
+	if ((amount < 0) || OPT(birth_maximize))
 	{
 		return (modify_stat_value(value, amount));
 	}
@@ -256,7 +252,7 @@ static void get_stats(int stat_use[A_MAX])
 		bonus = rp_ptr->r_adj[i] + cp_ptr->c_adj[i];
 
 		/* Variable stat maxes */
-		if (OPT(adult_maximize))
+		if (OPT(birth_maximize))
 		{
 			/* Start fully healed */
 			p_ptr->stat_cur[i] = p_ptr->stat_max[i];
@@ -333,52 +329,34 @@ static void get_bonuses(void)
 /*
  * Get the racial history, and social class, using the "history charts".
  */
-static void get_history(void)
+char *get_history(struct history_chart *chart, s16b *sc)
 {
-	int i, chart, roll, social_class;
+	int roll, social_class;
+	struct history_entry *entry;
+	char *res = NULL;
 
-
-	/* Clear the previous history strings */
-	p_ptr->history[0] = '\0';
-
-
-	/* Initial social class */
 	social_class = randint1(4);
 
-	/* Starting place */
-	chart = rp_ptr->hist;
-
-
-	/* Process the history */
-	while (chart)
-	{
-		/* Start over */
-		i = 0;
-
-		/* Roll for nobility */
+	while (chart) {
 		roll = randint1(100);
+		for (entry = chart->entries; entry; entry = entry->next)
+			if (roll <= entry->roll)
+				break;
+		assert(entry);
 
-		/* Get the proper entry in the table */
-		while ((chart != h_info[i].chart) || (roll > h_info[i].roll)) i++;
-
-		/* Get the textual history */
-		my_strcat(p_ptr->history, h_info[i].text, sizeof(p_ptr->history));
-
-		/* Add in the social class */
-		social_class += (int)(h_info[i].bonus) - 50;
-
-		/* Enter the next chart */
-		chart = h_info[i].next;
+		res = string_append(res, entry->text);
+		social_class += entry->bonus - 50;
+		chart = entry->succ;
 	}
 
+	if (social_class > 75)
+		social_class = 75;
+	else if (social_class < 1)
+		social_class = 1;
 
-
-	/* Verify social class */
-	if (social_class > 75) social_class = 75;
-	else if (social_class < 1) social_class = 1;
-
-	/* Save the social class */
-	p_ptr->sc = p_ptr->sc_birth = social_class;
+	if (sc)
+		*sc = social_class;
+	return res;
 }
 
 
@@ -486,9 +464,12 @@ void player_init(struct player *p) {
 	p->inventory = C_ZNEW(ALL_INVEN_TOTAL, struct object);
 
 	/* First turn. */
-	turn = old_turn = 1;
+	turn = 1;
 	p_ptr->total_energy = 0;
 	p_ptr->resting_turn = 0;
+	/* XXX default race/class */
+	p_ptr->race = races;
+	p_ptr->class = classes;
 }
 
 /**
@@ -657,7 +638,7 @@ static void recalculate_stats(int *stats, int points_left)
 	for (i = 0; i < A_MAX; i++)
 	{
 		/* Variable stat maxes */
-		if (OPT(adult_maximize))
+		if (OPT(birth_maximize))
 		{
 			/* Reset stats */
 			p_ptr->stat_cur[i] = p_ptr->stat_max[i] =
@@ -947,11 +928,14 @@ static void generate_stats(int stats[A_MAX], int points_spent[A_MAX],
  * and so is called whenever things like race or class are chosen.
  */
 void player_generate(struct player *p, const player_sex *s,
-                     struct player_race *r, player_class *c)
+                     const struct player_race *r,
+                     const struct player_class *c)
 {
 	if (!s) s = &sex_info[p->psex];
-	if (!c) c = &c_info[p->pclass];
-	if (!r) r = &p_info[p->prace];
+	if (!c)
+		c = p->class;
+	if (!r)
+		r = p->race;
 
 	p->sex = s;
 	p->class = c;
@@ -980,7 +964,8 @@ void player_generate(struct player *p, const player_sex *s,
 	/* Roll for age/height/weight */
 	get_ahw();
 
-	get_history();
+	p->history = get_history(p->race->history, &p->sc);
+	p->sc_birth = p->sc;
 }
 
 
@@ -1043,8 +1028,9 @@ void player_birth(bool quickstart_allowed)
 	else
 	{
 		p_ptr->psex = 0;
-		p_ptr->pclass = 0;
-		p_ptr->prace = 0;
+		/* XXX default race/class */
+		p_ptr->class = classes;
+		p_ptr->race = races;
 		player_generate(p_ptr, NULL, NULL, NULL);
 	}
 
@@ -1058,7 +1044,7 @@ void player_birth(bool quickstart_allowed)
 			(sizeof(op_ptr->full_name) - (buf -
 			(char *)&op_ptr->full_name)));
 			
-		if (!success) msg_print("Sorry, could not deal with suffix");
+		if (!success) msg("Sorry, could not deal with suffix");
 	}
 	
 
@@ -1088,8 +1074,7 @@ void player_birth(bool quickstart_allowed)
 		}
 		else if (cmd->command == CMD_CHOOSE_RACE)
 		{
-			p_ptr->prace = cmd->arg[0].choice;
-			player_generate(p_ptr, NULL, NULL, NULL);
+			player_generate(p_ptr, NULL, player_id2race(cmd->arg[0].choice), NULL);
 
 			reset_stats(stats, points_spent, &points_left);
 			generate_stats(stats, points_spent, &points_left);
@@ -1097,8 +1082,7 @@ void player_birth(bool quickstart_allowed)
 		}
 		else if (cmd->command == CMD_CHOOSE_CLASS)
 		{
-			p_ptr->pclass = cmd->arg[0].choice;
-			player_generate(p_ptr, NULL, NULL, NULL);
+			player_generate(p_ptr, NULL, NULL, player_id2class(cmd->arg[0].choice));
 
 			reset_stats(stats, points_spent, &points_left);
 			generate_stats(stats, points_spent, &points_left);
@@ -1106,15 +1090,8 @@ void player_birth(bool quickstart_allowed)
 		}
 		else if (cmd->command == CMD_FINALIZE_OPTIONS)
 		{
-			/* Set adult options from birth options */
-			for (i = OPT_BIRTH; i < OPT_CHEAT; i++)
-			{
-				op_ptr->opt[OPT_ADULT + (i - OPT_BIRTH)] =
-					op_ptr->opt[i];
-			}
-
 			/* Reset score options from cheat options */
-			for (i = OPT_CHEAT; i < OPT_ADULT; i++)
+			for (i = OPT_CHEAT; i < OPT_CHEAT + N_OPTS_CHEAT; i++)
 			{
 				op_ptr->opt[OPT_SCORE + (i - OPT_CHEAT)] =
 					op_ptr->opt[i];
@@ -1156,7 +1133,8 @@ void player_birth(bool quickstart_allowed)
 
 			/* There's no real need to do this here, but it's tradition. */
 			get_ahw();
-			get_history();
+			p_ptr->history = get_history(p_ptr->race->history, &p_ptr->sc);
+			p_ptr->sc_birth = p_ptr->sc;
 
 			event_signal(EVENT_GOLD);
 			event_signal(EVENT_AC);
@@ -1240,7 +1218,7 @@ void player_birth(bool quickstart_allowed)
 	get_money();
 
 	/* Outfit the player, if they can sell the stuff */
-	if (!OPT(adult_no_selling)) player_outfit(p_ptr);
+	if (!OPT(birth_no_selling)) player_outfit(p_ptr);
 
 	/* Initialise the stores */
 	store_reset();

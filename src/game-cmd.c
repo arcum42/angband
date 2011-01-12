@@ -79,6 +79,7 @@ static struct
 	{ CMD_REST, { arg_CHOICE }, do_cmd_rest, FALSE, 0 },
 	{ CMD_PATHFIND, { arg_POINT }, do_cmd_pathfind, FALSE, 0 },
 	{ CMD_PICKUP, { arg_ITEM }, do_cmd_pickup, FALSE, 0 },
+	{ CMD_AUTOPICKUP, { arg_NONE }, do_cmd_autopickup, FALSE, 0 },
 	{ CMD_WIELD, { arg_ITEM, arg_NUMBER }, do_cmd_wield, FALSE, 0 },
 	{ CMD_TAKEOFF, { arg_ITEM }, do_cmd_takeoff, FALSE, 0 },
 	{ CMD_DROP, { arg_ITEM, arg_NUMBER }, do_cmd_drop, FALSE, 0 },
@@ -93,7 +94,7 @@ static struct
 	{ CMD_REFILL, { arg_ITEM }, do_cmd_refill, FALSE, 0 },
 	{ CMD_FIRE, { arg_ITEM, arg_TARGET }, do_cmd_fire, FALSE, 0 },
 	{ CMD_THROW, { arg_ITEM, arg_TARGET }, do_cmd_throw, FALSE, 0 },
-	{ CMD_DESTROY, { arg_ITEM, arg_NUMBER }, do_cmd_destroy, FALSE, 0 },
+	{ CMD_DESTROY, { arg_ITEM }, do_cmd_destroy, FALSE, 0 },
 	{ CMD_ENTER_STORE, { arg_NONE }, do_cmd_store, FALSE, 0 },
 	{ CMD_INSCRIBE, { arg_ITEM, arg_STRING }, do_cmd_inscribe, FALSE, 0 },
 	{ CMD_STUDY_SPELL, { arg_CHOICE }, do_cmd_study_spell, FALSE, 0 },
@@ -354,7 +355,7 @@ void cmd_set_arg_number(game_command *cmd, int n, int num)
  */
 errr cmd_insert_repeated(cmd_code c, int nrepeats)
 {
-	game_command cmd = { CMD_NULL, 0, {{0}} };
+	game_command cmd = { 0 };
 
 	if (cmd_idx(c) == -1)
 		return 1;
@@ -390,10 +391,11 @@ void process_command(cmd_context ctx, bool no_request)
 	{
 		int oldrepeats = cmd->nrepeats;
 		int idx = cmd_idx(cmd->command);
+		size_t i;
 
 		if (idx == -1) return;
 
-		for (size_t i = 0; i < N_ELEMENTS(item_selector); i++)
+		for (i = 0; i < N_ELEMENTS(item_selector); i++)
 		{
 			struct item_selector *is = &item_selector[i];
 

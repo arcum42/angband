@@ -22,7 +22,6 @@
 #include "files.h"
 #include "monster/monster.h"
 #include "object/tvalsval.h"
-#include "object/object.h"
 #include "ui-menu.h"
 #include "spells.h"
 #include "target.h"
@@ -65,10 +64,10 @@ static void do_cmd_wiz_hack_ben(void)
 				if (!in_bounds_fully(y, x)) continue;
 
 				/* Display proper cost */
-				if (cave_cost[y][x] != i) continue;
+				if (cave->cost[y][x] != i) continue;
 
 				/* Reliability in yellow */
-				if (cave_when[y][x] == cave_when[py][px])
+				if (cave->when[y][x] == cave->when[py][px])
 				{
 					a = TERM_YELLOW;
 				}
@@ -332,8 +331,9 @@ static void wiz_display_item(const object_type *o_ptr, bool all)
 	prt(format("kind = %-5d  tval = %-5d  sval = %-5d  wgt = %-3d     timeout = %-d",
 	           o_ptr->k_idx, o_ptr->tval, o_ptr->sval, o_ptr->weight, o_ptr->timeout), 5, j);
 
+	/* CC: multiple pvals not shown, pending #1290 */
 	prt(format("number = %-3d  pval = %-5d  name1 = %-4d  name2 = %-4d  cost = %ld",
-	           o_ptr->number, o_ptr->pval, o_ptr->name1, o_ptr->name2, (long)object_value(o_ptr, 1, FALSE)), 6, j);
+	           o_ptr->number, o_ptr->pval[DEFAULT_PVAL], o_ptr->name1, o_ptr->name2, (long)object_value(o_ptr, 1, FALSE)), 6, j);
 
 	prt("+------------FLAGS0------------+", 8, j);
 	prt("AFFECT..........SLAY.......BRAND", 9, j);
@@ -426,7 +426,7 @@ bool wiz_create_item_subaction(menu_type *m, const ui_event_data *e, int oid)
 		make_gold(i_ptr, p_ptr->depth, kind->sval);
 
 	/* Drop the object from heaven */
-	drop_near(i_ptr, 0, p_ptr->py, p_ptr->px, TRUE);
+	drop_near(cave, i_ptr, 0, p_ptr->py, p_ptr->px, TRUE);
 
 	return FALSE;
 }
@@ -579,7 +579,7 @@ static void wiz_tweak_item(object_type *o_ptr)
 {
 	cptr p;
 	char tmp_val[80];
-
+	int i;
 
 	/* Hack -- leave artifacts alone */
 	if (artifact_p(o_ptr)) return;
@@ -591,8 +591,11 @@ static void wiz_tweak_item(object_type *o_ptr)
 	o_ptr->attribute = atoi(tmp_val);\
 	wiz_display_item(o_ptr, TRUE);\
 } while (0)
-
-	WIZ_TWEAK(pval);
+	for (i = 0; i < MAX_PVALS; i++) {
+		WIZ_TWEAK(pval[i]);
+		if (o_ptr->pval[i])
+			o_ptr->num_pvals = (i + 1);
+	}
 	WIZ_TWEAK(to_a);
 	WIZ_TWEAK(to_h);
 	WIZ_TWEAK(to_d);
@@ -711,11 +714,12 @@ static void wiz_reroll_item(object_type *o_ptr)
 static void wiz_statistics(object_type *o_ptr, int level)
 {
 	long i, matches, better, worse, other;
+	int j;
 
 	char ch;
 	cptr quality;
 
-	bool good, great;
+	bool good, great, ismatch, isbetter, isworse;
 
 	object_type *i_ptr;
 	object_type object_type_body;
@@ -768,7 +772,7 @@ static void wiz_statistics(object_type *o_ptr, int level)
 		}
 
 		/* Let us know what we are doing */
-		msg_format("Creating a lot of %s items. Base level = %d.",
+		msg("Creating a lot of %s items. Base level = %d.",
 		           quality, p_ptr->depth);
 		message_flush();
 
@@ -807,7 +811,7 @@ static void wiz_statistics(object_type *o_ptr, int level)
 			object_wipe(i_ptr);
 
 			/* Create an object */
-			make_object(i_ptr, level, good, great);
+			make_object(cave, i_ptr, level, good, great);
 
 			/* Allow multiple artifacts, because breaking the game is fine here */
 			a_ptr = artifact_of(o_ptr);
@@ -817,27 +821,41 @@ static void wiz_statistics(object_type *o_ptr, int level)
 			if ((o_ptr->tval) != (i_ptr->tval)) continue;
 			if ((o_ptr->sval) != (i_ptr->sval)) continue;
 
+			/* Check pvals */
+			ismatch = TRUE;
+			for (j = 0; j < MAX_PVALS; j++)
+				if (i_ptr->pval[j] != o_ptr->pval[j])
+					ismatch = FALSE;
+
+			isbetter = TRUE;
+			for (j = 0; j < MAX_PVALS; j++)
+				if (i_ptr->pval[j] < o_ptr->pval[j])
+					isbetter = FALSE;
+
+			isworse = TRUE;
+			for (j = 0; j < MAX_PVALS; j++)
+				if (i_ptr->pval[j] > o_ptr->pval[j])
+					isworse = FALSE;
+
 			/* Check for match */
-			if ((i_ptr->pval == o_ptr->pval) &&
-			    (i_ptr->to_a == o_ptr->to_a) &&
-			    (i_ptr->to_h == o_ptr->to_h) &&
-			    (i_ptr->to_d == o_ptr->to_d))
+			if (ismatch && (i_ptr->to_a == o_ptr->to_a) &&
+				(i_ptr->to_h == o_ptr->to_h) &&
+				(i_ptr->to_d == o_ptr->to_d) &&
+				(i_ptr->num_pvals == o_ptr->num_pvals))
 			{
 				matches++;
 			}
 
 			/* Check for better */
-			else if ((i_ptr->pval >= o_ptr->pval) &&
-			         (i_ptr->to_a >= o_ptr->to_a) &&
+			else if (isbetter && (i_ptr->to_a >= o_ptr->to_a) &&
 			         (i_ptr->to_h >= o_ptr->to_h) &&
 			         (i_ptr->to_d >= o_ptr->to_d))
 			{
-				better++;
+					better++;
 			}
 
 			/* Check for worse */
-			else if ((i_ptr->pval <= o_ptr->pval) &&
-			         (i_ptr->to_a <= o_ptr->to_a) &&
+			else if (isworse && (i_ptr->to_a <= o_ptr->to_a) &&
 			         (i_ptr->to_h <= o_ptr->to_h) &&
 			         (i_ptr->to_d <= o_ptr->to_d))
 			{
@@ -852,7 +870,7 @@ static void wiz_statistics(object_type *o_ptr, int level)
 		}
 
 		/* Final dump */
-		msg_format(q, i, matches, better, worse, other);
+		msg(q, i, matches, better, worse, other);
 		message_flush();
 	}
 
@@ -915,7 +933,7 @@ static void wiz_tweak_curse(object_type *o_ptr)
 {
 	if (cursed_p(o_ptr))
 	{
-		msg_print("Resetting existing curses.");
+		msg("Resetting existing curses.");
 		flags_clear(o_ptr->flags, OF_SIZE, OF_CURSE_MASK, FLAG_END);
 	}
 
@@ -1013,7 +1031,7 @@ static void do_cmd_wiz_play(void)
 	if (changed)
 	{
 		/* Message */
-		msg_print("Changes accepted.");
+		msg("Changes accepted.");
 
 		/* Change */
 		object_copy(o_ptr, i_ptr);
@@ -1031,10 +1049,9 @@ static void do_cmd_wiz_play(void)
 	/* Ignore change */
 	else
 	{
-		msg_print("Changes ignored.");
+		msg("Changes ignored.");
 	}
 }
-
 
 /*
  * Create the artifact with the specified number
@@ -1043,7 +1060,7 @@ static void wiz_create_artifact(int a_idx)
 {
 	object_type *i_ptr;
 	object_type object_type_body;
-	int k_idx;
+	int k_idx, i;
 
 	artifact_type *a_ptr = &a_info[a_idx];
 
@@ -1069,7 +1086,10 @@ static void wiz_create_artifact(int a_idx)
 	i_ptr->name1 = a_idx;
 
 	/* Extract the fields */
-	i_ptr->pval = a_ptr->pval;
+	for (i = 0; i < a_ptr->num_pvals; i++) {
+		i_ptr->pval[i] = a_ptr->pval[i];
+		i_ptr->num_pvals++;
+	}
 	i_ptr->ac = a_ptr->ac;
 	i_ptr->dd = a_ptr->dd;
 	i_ptr->ds = a_ptr->ds;
@@ -1094,10 +1114,10 @@ static void wiz_create_artifact(int a_idx)
 	i_ptr->origin = ORIGIN_CHEAT;
 
 	/* Drop the artifact from heaven */
-	drop_near(i_ptr, 0, p_ptr->py, p_ptr->px, TRUE);
+	drop_near(cave, i_ptr, 0, p_ptr->py, p_ptr->px, TRUE);
 
 	/* All done */
-	msg_print("Allocated.");
+	msg("Allocated.");
 }
 
 
@@ -1180,7 +1200,7 @@ static void do_cmd_wiz_jump(void)
 	if (p_ptr->command_arg > MAX_DEPTH - 1) p_ptr->command_arg = MAX_DEPTH - 1;
 
 	/* Accept request */
-	msg_format("You jump to dungeon level %d.", p_ptr->command_arg);
+	msg("You jump to dungeon level %d.", p_ptr->command_arg);
 
 	/* New depth */
 	p_ptr->depth = p_ptr->command_arg;
@@ -1262,7 +1282,7 @@ static void do_cmd_rerate(void)
 	handle_stuff();
 
 	/* Message */
-	msg_format("Current Life Rating is %d/100.", percent);
+	msg("Current Life Rating is %d/100.", percent);
 }
 
 
@@ -1311,7 +1331,7 @@ static void do_cmd_wiz_named(int r_idx, bool slp)
 		if (!cave_empty_bold(y, x)) continue;
 
 		/* Place it (allow groups) */
-		if (place_monster_aux(y, x, r_idx, slp, TRUE)) break;
+		if (place_monster_aux(cave, y, x, r_idx, slp, TRUE)) break;
 	}
 }
 
@@ -1424,10 +1444,10 @@ static void do_cmd_wiz_query(void)
 			if (!in_bounds_fully(y, x)) continue;
 
 			/* Given mask, show only those grids */
-			if (mask && !(cave_info[y][x] & mask)) continue;
+			if (mask && !(cave->info[y][x] & mask)) continue;
 
 			/* Given no mask, show unknown grids */
-			if (!mask && (cave_info[y][x] & (CAVE_MARK))) continue;
+			if (!mask && (cave->info[y][x] & (CAVE_MARK))) continue;
 
 			/* Color */
 			if (cave_floor_bold(y, x)) a = TERM_YELLOW;
@@ -1449,7 +1469,7 @@ static void do_cmd_wiz_query(void)
 	}
 
 	/* Get keypress */
-	msg_print("Press any key.");
+	msg("Press any key.");
 	message_flush();
 
 	/* Redraw map */
@@ -1488,11 +1508,11 @@ static void wiz_test_kind(int tval)
 				make_gold(i_ptr, p_ptr->depth, sval);
 
 			/* Drop the object from heaven */
-			drop_near(i_ptr, 0, py, px, TRUE);
+			drop_near(cave, i_ptr, 0, py, px, TRUE);
 		}
 	}
 
-	msg_print("Done.");
+	msg("Done.");
 }
 
 /*
@@ -1758,7 +1778,7 @@ void do_cmd_debug(void)
 		/* Create a trap */
 		case 'T':
 		{
-			cave_set_feat(p_ptr->py, p_ptr->px, FEAT_INVIS);
+			cave_set_feat(cave, p_ptr->py, p_ptr->px, FEAT_INVIS);
 			break;
 		}
 
@@ -1823,7 +1843,7 @@ void do_cmd_debug(void)
 		/* Oops */
 		default:
 		{
-			msg_print("That is not a valid debug command.");
+			msg("That is not a valid debug command.");
 			break;
 		}
 	}

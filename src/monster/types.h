@@ -1,6 +1,10 @@
 #ifndef INCLUDED_MONSTER_TYPES_H
 #define INCLUDED_MONSTER_TYPES_H
 
+#include "defines.h"
+#include "h-basic.h"
+#include "z-bitflag.h"
+
 /*
  * Monster blow structure
  *

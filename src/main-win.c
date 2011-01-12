@@ -72,6 +72,11 @@
  */
 
 #include "angband.h"
+#include "cmds.h"
+#include "cave.h"
+#include "init.h"
+#include "files.h"
+
 #define uint unsigned int
 
 #if (defined(WINDOWS) && !defined(USE_SDL))
@@ -1755,19 +1760,6 @@ static void Term_nuke_win(term *t)
 
 
 /*
- * Interact with the User
- */
-static errr Term_user_win(int n)
-{
-	/* Unused parameter */
-	(void)n;
-
-	/* Success */
-	return (0);
-}
-
-
-/*
  * React to global changes
  */
 static errr Term_xtra_win_react(void)
@@ -2665,7 +2657,6 @@ static void term_data_link(term_data *td)
 #endif /* 0 */
 
 	/* Prepare the template hooks */
-	t->user_hook = Term_user_win;
 	t->xtra_hook = Term_xtra_win;
 	t->curs_hook = Term_curs_win;
 	t->bigcurs_hook = Term_bigcurs_win;
@@ -3983,7 +3974,7 @@ static void handle_wm_paint(HWND hWnd)
 	term_data *td;
 
 	/* Acquire proper "term_data" info */
-	td = (term_data *)GetWindowLong(hWnd, 0);
+	td = (term_data *)GetWindowLongPtr(hWnd, GWLP_USERDATA);
 
 	BeginPaint(hWnd, &ps);
 
@@ -4028,7 +4019,7 @@ static LRESULT FAR PASCAL AngbandWndProc(HWND hWnd, UINT uMsg,
 #endif /* USE_SAVER */
 
 	/* Acquire proper "term_data" info */
-	td = (term_data *)GetWindowLong(hWnd, 0);
+	td = (term_data *)GetWindowLongPtr(hWnd, GWLP_USERDATA);
 
 	/* Handle message */
 	switch (uMsg)
@@ -4036,7 +4027,11 @@ static LRESULT FAR PASCAL AngbandWndProc(HWND hWnd, UINT uMsg,
 		/* XXX XXX XXX */
 		case WM_NCCREATE:
 		{
-			SetWindowLong(hWnd, 0, (LONG)(my_td));
+#ifdef _WIN64
+			SetWindowLongPtr(hWnd, GWLP_USERDATA, my_td);
+#else
+			SetWindowLongPtr(hWnd, GWLP_USERDATA, (LONG)(my_td));
+#endif
 			break;
 		}
 
@@ -4366,7 +4361,7 @@ static LRESULT FAR PASCAL AngbandListProc(HWND hWnd, UINT uMsg,
 
 
 	/* Acquire proper "term_data" info */
-	td = (term_data *)GetWindowLong(hWnd, 0);
+	td = (term_data *)GetWindowLongPtr(hWnd, GWLP_USERDATA);
 
 	/* Process message */
 	switch (uMsg)
@@ -4374,7 +4369,11 @@ static LRESULT FAR PASCAL AngbandListProc(HWND hWnd, UINT uMsg,
 		/* XXX XXX XXX */
 		case WM_NCCREATE:
 		{
-			SetWindowLong(hWnd, 0, (LONG)(my_td));
+#ifdef _WIN64
+			SetWindowLongPtr(hWnd, GWLP_USERDATA, my_td);
+#else
+			SetWindowLongPtr(hWnd, GWLP_USERDATA, (LONG)(my_td));
+#endif
 			break;
 		}
 

@@ -1,8 +1,19 @@
 #ifndef INCLUDED_EXTERNS_H
 #define INCLUDED_EXTERNS_H
 
-/*
- * Automatically generated "variable" declarations
+#include "monster/types.h"
+#include "object/types.h"
+#include "player/types.h"
+#include "store.h"
+#include "types.h"
+#include "x-char.h"
+#include "z-file.h"
+#include "z-msg.h"
+
+/* This file was automatically generated. It is now obsolete (it was never a
+ * good idea to begin with; you should include only what you use instead of
+ * including everything everywhere) and is being slowly destroyed. Do not add
+ * new entries to this file.
  */
 
 /* pathfind.c */
@@ -53,7 +64,6 @@ extern u32b seed_town;
 extern s16b num_repro;
 extern char summon_kin_type;
 extern s32b turn;
-extern s32b old_turn;
 extern int use_graphics;
 extern bool use_graphics_nice;
 extern s16b signal_count;
@@ -72,10 +82,6 @@ extern s16b o_max;
 extern s16b o_cnt;
 extern s16b mon_max;
 extern s16b mon_cnt;
-extern byte feeling;
-extern s16b rating;
-extern bool good_item_flag;
-extern bool closing_flag;
 extern char savefile[1024];
 extern term *angband_term[ANGBAND_TERM_MAX];
 extern char angband_term_name[ANGBAND_TERM_MAX][16];
@@ -88,13 +94,6 @@ extern int temp_n;
 extern u16b *temp_g;
 extern byte *temp_y;
 extern byte *temp_x;
-extern byte (*cave_info)[256];
-extern byte (*cave_info2)[256];
-extern byte (*cave_feat)[DUNGEON_WID];
-extern s16b (*cave_o_idx)[DUNGEON_WID];
-extern s16b (*cave_m_idx)[DUNGEON_WID];
-extern byte (*cave_cost)[DUNGEON_WID];
-extern byte (*cave_when)[DUNGEON_WID];
 extern maxima *z_info;
 extern object_type *o_list;
 extern monster_type *mon_list;
@@ -118,20 +117,20 @@ extern const player_class *cp_ptr;
 extern const player_magic *mp_ptr;
 extern player_other *op_ptr;
 extern player_type *p_ptr;
-extern vault_type *v_info;
 extern feature_type *f_info;
 extern object_kind *k_info;
 extern artifact_type *a_info;
 extern ego_item_type *e_info;
 extern monster_race *r_info;
-extern player_race *p_info;
-extern player_class *c_info;
-extern hist_type *h_info;
 extern owner_type *b_info;
 extern byte *g_info;
-extern flavor_type *flavor_info;
+extern struct player_race *races;
+extern struct player_class *classes;
+extern struct flavor *flavors;
+extern struct vault *vaults;
+extern struct object_kind *objkinds;
 extern spell_type *s_info;
-extern s16b spell_list[MAX_REALMS][BOOKS_PER_REALM][SPELLS_PER_BOOK];
+extern struct hint *hints;
 
 extern const char *ANGBAND_SYS;
 extern const char *ANGBAND_GRAF;
@@ -164,10 +163,6 @@ extern int text_out_indent;
 extern int text_out_pad;
 extern bool use_transparency;
 extern void (*sound_hook)(int);
-extern autoinscription *inscriptions;
-extern u16b inscriptions_count;
-
-extern flag_cache *slay_cache;
 
 extern u16b daycount;
 
@@ -181,8 +176,9 @@ extern void player_birth(bool quickstart_allowed);
 
 /* cmd1.c */
 extern bool search(bool verbose);
+extern int do_autopickup(void);
 extern byte py_pickup(int pickup);
-extern void move_player(int dir);
+extern void move_player(int dir, bool disarm);
 
 /* cmd2.c */
 /* XXX should probably be moved to cave.c? */
@@ -202,18 +198,12 @@ extern void play_game(void);
 extern int value_check_aux1(const object_type *o_ptr);
 extern void idle_update(void);
 
-/* files.c */
-
-/* load.c */
-extern bool old_load(void);
-
 /* melee1.c */
 bool check_hit(int power, int level);
 bool make_attack_normal(int m_idx);
 
 /* melee2.c */
 extern bool make_attack_spell(int m_idx);
-extern void process_monsters(byte minimum_energy);
 
 /* pathfind.c */
 extern bool findpath(int y, int x);
@@ -240,9 +230,6 @@ extern void signals_ignore_tstp(void);
 extern void signals_handle_tstp(void);
 extern void signals_init(void);
 
-/* save.c */
-extern bool old_save(void);
-
 /* store.c */
 void do_cmd_store_knowledge(void);
 
@@ -259,10 +246,8 @@ extern ui_event_data inkey_ex(void);
 extern char anykey(void);
 extern void bell(cptr reason);
 extern void sound(int val);
-extern void msg_print(cptr msg);
-extern void msg_format(cptr fmt, ...);
-extern void message(u16b message_type, s16b extra, cptr message);
-extern void message_format(u16b message_type, s16b extra, cptr fmt, ...);
+extern void msg(const char *fmt, ...);
+extern void msgt(unsigned int type, const char *fmt, ...);
 extern void message_flush(void);
 extern void screen_save(void);
 extern void screen_load(void);
@@ -325,6 +310,7 @@ byte monster_health_attr(void);
 void cnv_stat(int val, char *out_val, size_t out_len);
 void toggle_inven_equip(void);
 void subwindows_set_flags(u32b *new_flags, size_t n_subwindows);
+char* random_hint(void);
 
 /* wiz-spoil.c */
 bool make_fake_artifact(object_type *o_ptr, byte name1);

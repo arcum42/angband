@@ -24,6 +24,7 @@
 #include "object/tvalsval.h"
 #include "spells.h"
 #include "squelch.h"
+#include "slays.h"
 
 /** Time last item was wielded */
 s32b object_last_wield;
@@ -151,30 +152,63 @@ bool object_effect_is_known(const object_type *o_ptr)
 }
 
 /**
- * \returns whether the object's pval is known to the player
+ * \returns whether a specific pval is known to the player
  */
-bool object_pval_is_visible(const object_type *o_ptr)
+bool object_this_pval_is_visible(const object_type *o_ptr, int pval)
 {
-	bitflag f[OF_SIZE];
+	bitflag f[MAX_PVALS][OF_SIZE];
 
 	if (o_ptr->ident & IDENT_STORE)
 		return TRUE;
 
-	/* Aware jewelry with non-variable pvals */
+	/* Aware jewelry with non-variable pval */
 	if (object_is_jewelry(o_ptr) && object_flavor_is_aware(o_ptr))
 	{
 		const object_kind *k_ptr = &k_info[o_ptr->k_idx];
 
-		if (!randcalc_varies(k_ptr->pval))
+		if (!randcalc_varies(k_ptr->pval[pval]))
 			return TRUE;
 	}
 
 	if (object_was_worn(o_ptr))
 	{
-		object_flags_known(o_ptr, f);
+		object_pval_flags_known(o_ptr, f);
 
-		if (flags_test(f, OF_SIZE, OF_PVAL_MASK, FLAG_END))
+		if (flags_test(f[pval], OF_SIZE, OF_PVAL_MASK, FLAG_END))
 			return TRUE;
+	}
+
+	return FALSE;
+}
+
+/**
+ * \returns whether any of an object's pvals are known to the player
+ */
+bool object_pval_is_visible(const object_type *o_ptr)
+{
+	bitflag f[MAX_PVALS][OF_SIZE];
+	int i;
+
+	if (o_ptr->ident & IDENT_STORE)
+		return TRUE;
+
+	/* Aware jewelry with any non-variable pvals */
+	if (object_is_jewelry(o_ptr) && object_flavor_is_aware(o_ptr))
+	{
+		const object_kind *k_ptr = &k_info[o_ptr->k_idx];
+
+		for (i = 0; i < k_ptr->num_pvals; i++)
+			if (!randcalc_varies(k_ptr->pval[i]))
+				return TRUE;
+	}
+
+	if (object_was_worn(o_ptr))
+	{
+		object_pval_flags_known(o_ptr, f);
+
+		for (i = 0; i < o_ptr->num_pvals; i++)
+			if (flags_test(f[i], OF_SIZE, OF_PVAL_MASK, FLAG_END))
+				return TRUE;
 	}
 
 	return FALSE;
@@ -371,7 +405,7 @@ void object_flavor_aware(object_type *o_ptr)
 		/* So update display for all floor objects of this kind */
 		if (!floor_o_ptr->held_m_idx &&
 				floor_o_ptr->k_idx == o_ptr->k_idx)
-			light_spot(floor_o_ptr->iy, floor_o_ptr->ix);
+			cave_light_spot(cave, floor_o_ptr->iy, floor_o_ptr->ix);
 	}
 }
 
@@ -578,36 +612,6 @@ void object_notice_effect(object_type *o_ptr)
 }
 
 
-/*
- * Notice slays on a particular object.
- *
- * \param known_f0 is the list of flags to notice
- */
-void object_notice_slay(object_type *o_ptr, int flag)
-{
-	const slay_t *s_ptr;
-	bool learned = object_notice_flag(o_ptr, flag);
-
-	/* if you learn a slay, learn the ego and print a message */
-	if (EASY_LEARN && learned)
-	{
-		object_notice_ego(o_ptr);
-
-		for (s_ptr = slay_table; s_ptr->slay_flag; s_ptr++)
-		{
-			if (s_ptr->slay_flag == flag)
-			{
-				char o_name[40];
-				object_desc(o_name, sizeof(o_name), o_ptr, ODESC_BASE);
-				msg_format("Your %s %s!", o_name, s_ptr->active_verb);
-			}
-		}
-	}
-
-	object_check_for_ident(o_ptr);
-}
-
-
 static void object_notice_defence_plusses(object_type *o_ptr)
 {
 	if (!o_ptr->k_idx) return;
@@ -622,7 +626,7 @@ static void object_notice_defence_plusses(object_type *o_ptr)
 		char o_name[80];
 
 		object_desc(o_name, sizeof(o_name), o_ptr, ODESC_BASE);
-		message_format(MSG_PSEUDOID, 0,
+		msgt(MSG_PSEUDOID,
 				"You know more about the %s you are wearing.",
 				o_name);
 	}
@@ -648,7 +652,7 @@ void object_notice_attack_plusses(object_type *o_ptr)
 		char o_name[80];
 
 		object_desc(o_name, sizeof(o_name), o_ptr, ODESC_BASE);
-		message_format(MSG_PSEUDOID, 0,
+		msgt(MSG_PSEUDOID,
 				"You know more about the %s you are using.",
 				o_name);
 	}
@@ -658,7 +662,7 @@ void object_notice_attack_plusses(object_type *o_ptr)
 		char o_name[80];
 
 		object_desc(o_name, sizeof(o_name), o_ptr, ODESC_BASE);
-		message_format(MSG_PSEUDOID, 0, "Your %s glows.", o_name);
+		msgt(MSG_PSEUDOID, "Your %s glows.", o_name);
 	}
 
 	p_ptr->update |= (PU_BONUS);
@@ -773,9 +777,10 @@ void object_notice_on_firing(object_type *o_ptr)
 
 
 /*
- * Determine whether a weapon or missile weapon is obviously {excellent} when worn.
- */
-/* XXX Eddie should messages be adhoc all over the place?  perhaps the main
+ * Determine whether a weapon or missile weapon is obviously {excellent} when
+ * worn.
+ *
+ * XXX Eddie should messages be adhoc all over the place?  perhaps the main
  * loop should check for change in inventory/wieldeds and all messages be
  * printed from one place
  */
@@ -783,7 +788,6 @@ void object_notice_on_wield(object_type *o_ptr)
 {
 	bitflag f[OF_SIZE], obvious_mask[OF_SIZE];
 	bool obvious = FALSE;
-	const slay_t *s_ptr;
 
 	flags_init(obvious_mask, OF_SIZE, OF_OBVIOUS_MASK, FLAG_END);
 
@@ -798,6 +802,8 @@ void object_notice_on_wield(object_type *o_ptr)
 	if (object_add_ident_flags(o_ptr, IDENT_WORN))
 		object_check_for_ident(o_ptr);
 
+	/* CC: may wish to be more subtle about this once we have ego lights
+	 * with multiple pvals */
 	if (obj_is_light(o_ptr) && ego_item_p(o_ptr))
 		object_notice_ego(o_ptr);
 
@@ -831,7 +837,6 @@ void object_notice_on_wield(object_type *o_ptr)
 
 	/* XXX Eddie should these next NOT call object_check_for_ident due to worries about repairing? */
 
-
 	/* XXX Eddie this is a small hack, but jewelry with anything noticeable really is obvious */
 	/* XXX Eddie learn =soulkeeping vs =bodykeeping when notice sustain_str */
 	if (object_is_jewelry(o_ptr))
@@ -849,48 +854,48 @@ void object_notice_on_wield(object_type *o_ptr)
 
 	if (!obvious) return;
 
-	/* Messages */
-	for (s_ptr = slay_table; s_ptr->slay_flag; s_ptr++)
-	{
-		if (of_has(f, s_ptr->slay_flag) && s_ptr->brand)
-		{
-			char o_name[40];
-			object_desc(o_name, sizeof(o_name), o_ptr, ODESC_BASE);
-			msg_format("Your %s %s!", o_name, s_ptr->active_verb);
-		}
-	}
+	/* Notice any obvious brands or slays */
+	object_notice_slays(o_ptr, obvious_mask);
 
 	/* XXX Eddie need to add stealth here, also need to assert/double-check everything is covered */
 	if (of_has(f, OF_STR))
-		msg_format("You feel %s!", o_ptr->pval > 0 ? "stronger" : "weaker");
+		msg("You feel %s!", o_ptr->pval[which_pval(o_ptr,
+			OF_STR)] > 0 ? "stronger" : "weaker");
 	if (of_has(f, OF_INT))
-		msg_format("You feel %s!", o_ptr->pval > 0 ? "smarter" : "more stupid");
+		msg("You feel %s!", o_ptr->pval[which_pval(o_ptr,
+			OF_INT)] > 0 ? "smarter" : "more stupid");
 	if (of_has(f, OF_WIS))
-		msg_format("You feel %s!", o_ptr->pval > 0 ? "wiser" : "more naive");
+		msg("You feel %s!", o_ptr->pval[which_pval(o_ptr,
+			OF_WIS)] > 0 ? "wiser" : "more naive");
 	if (of_has(f, OF_DEX))
-		msg_format("You feel %s!", o_ptr->pval > 0 ? "more dextrous" : "clumsier");
+		msg("You feel %s!", o_ptr->pval[which_pval(o_ptr,
+			OF_DEX)] > 0 ? "more dextrous" : "clumsier");
 	if (of_has(f, OF_CON))
-		msg_format("You feel %s!", o_ptr->pval > 0 ? "healthier" : "sicklier");
+		msg("You feel %s!", o_ptr->pval[which_pval(o_ptr,
+			OF_CON)] > 0 ? "healthier" : "sicklier");
 	if (of_has(f, OF_CHR))
-		msg_format("You feel %s!", o_ptr->pval > 0 ? "cuter" : "uglier");
+		msg("You feel %s!", o_ptr->pval[which_pval(o_ptr,
+			OF_CHR)] > 0 ? "cuter" : "uglier");
 	if (of_has(f, OF_SPEED))
-		msg_format("You feel strangely %s.", o_ptr->pval > 0 ? "quick" : "sluggish");
-	if (flags_test(f, OF_SIZE, OF_BLOWS, OF_SHOTS, FLAG_END))
-		msg_format("Your hands %s", o_ptr->pval > 0 ? "tingle!" : "ache.");
+		msg("You feel strangely %s.", o_ptr->pval[which_pval(o_ptr,
+			OF_SPEED)] > 0 ? "quick" : "sluggish");
+	if (of_has(f, OF_BLOWS))
+		msg("Your weapon %s in your hands.",
+			o_ptr->pval[which_pval(o_ptr, OF_BLOWS)] > 0 ?
+				"tingles" : "aches");
+	if (of_has(f, OF_SHOTS))
+		msg("Your bow %s in your hands.",
+			o_ptr->pval[which_pval(o_ptr, OF_SHOTS)] > 0 ?
+				"tingles" : "aches");
 	if (of_has(f, OF_INFRA))
-		msg_format("Your eyes tingle.");
+		msg("Your eyes tingle.");
 	if (of_has(f, OF_LIGHT))
-		msg_print("It glows!");
+		msg("It glows!");
 	if (of_has(f, OF_TELEPATHY))
-		msg_print("Your mind feels strangely sharper!");
+		msg("Your mind feels strangely sharper!");
 
 	/* WARNING -- masking f by obvious mask -- this should be at the end of this function */
 	flags_mask(f, OF_SIZE, OF_OBVIOUS_MASK, FLAG_END);
-
-	/* learn the ego on any obvious brand or slay */
-	if (EASY_LEARN && ego_item_p(o_ptr) && obvious &&
-	    flags_test(f, OF_SIZE, OF_ALL_SLAY_MASK, FLAG_END))
-		object_notice_ego(o_ptr);
 
 	/* Remember the flags */
 	object_notice_sensing(o_ptr);
@@ -932,7 +937,7 @@ static void object_notice_after_time(void)
 			{
 				/* Message */
 				if (!streq(msgs[flag], ""))
-					msg_format(msgs[flag], o_name);
+					msg(msgs[flag], o_name);
 
 				/* Notice the flag */
 				object_notice_flag(o_ptr, flag);
@@ -996,7 +1001,7 @@ void wieldeds_notice_flag(int flag)
 
 			/* Message */
 			if (!streq(msgs[flag], ""))
-				msg_format(msgs[flag], o_name);
+				msg(msgs[flag], o_name);
 		}
 		else
 		{
@@ -1234,7 +1239,7 @@ void sense_inventory(void)
 		{
 			object_notice_everything(o_ptr);
 
-			message_format(MSG_PSEUDOID, 0,
+			msgt(MSG_PSEUDOID,
 					"You feel the %s (%c) %s %s average...",
 					o_name, index_to_label(i),((i >=
 					INVEN_WIELD) ? "you are using" : "in your pack"),
@@ -1244,14 +1249,14 @@ void sense_inventory(void)
 		{
 			if (i >= INVEN_WIELD)
 			{
-				message_format(MSG_PSEUDOID, 0, "You feel the %s (%c) you are %s %s %s...",
+				msgt(MSG_PSEUDOID, "You feel the %s (%c) you are %s %s %s...",
 							   o_name, index_to_label(i), describe_use(i),
 							   ((o_ptr->number == 1) ? "is" : "are"),
 				                           text);
 			}
 			else
 			{
-				message_format(MSG_PSEUDOID, 0, "You feel the %s (%c) in your pack %s %s...",
+				msgt(MSG_PSEUDOID, "You feel the %s (%c) in your pack %s %s...",
 							   o_name, index_to_label(i),
 							   ((o_ptr->number == 1) ? "is" : "are"),
 				                           text);

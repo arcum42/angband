@@ -23,9 +23,6 @@
 #include "squelch.h"
 
 
-
-
-
 typedef struct
 {
 	squelch_type_t squelch_type;
@@ -64,6 +61,42 @@ static quality_squelch_struct quality_mapping[] =
 
 
 
+quality_name_struct quality_choices[TYPE_MAX] =
+{
+	{ TYPE_WEAPON_POINTY,	"Pointy Melee Weapons" },
+	{ TYPE_WEAPON_BLUNT,	"Blunt Melee Weapons" },
+	{ TYPE_SHOOTER,		"Missile weapons" },
+	{ TYPE_MISSILE_SLING,	"Shots and Pebbles" },
+	{ TYPE_MISSILE_BOW,	"Arrows" },
+	{ TYPE_MISSILE_XBOW,	"Bolts" },
+	{ TYPE_ARMOR_ROBE,	"Robes" },
+	{ TYPE_ARMOR_BODY,	"Body Armor" },
+	{ TYPE_ARMOR_CLOAK,	"Cloaks" },
+	{ TYPE_ARMOR_ELVEN_CLOAK,	"Elven Cloaks" },
+	{ TYPE_ARMOR_SHIELD,	"Shields" },
+	{ TYPE_ARMOR_HEAD,	"Headgear" },
+	{ TYPE_ARMOR_HANDS,	"Handgear" },
+	{ TYPE_ARMOR_FEET,	"Footgear" },
+	{ TYPE_DIGGER,		"Diggers" },
+	{ TYPE_RING,		"Rings" },
+	{ TYPE_AMULET,		"Amulets" },
+	{ TYPE_LIGHT, 		"Lights" },
+};
+
+/*
+ * The names for the various kinds of quality
+ */
+quality_name_struct quality_values[SQUELCH_MAX] =
+{
+	{ SQUELCH_NONE,		"no squelch" },
+	{ SQUELCH_BAD,		"bad" },
+	{ SQUELCH_AVERAGE,	"average" },
+	{ SQUELCH_GOOD,		"good" },
+	{ SQUELCH_EXCELLENT_NO_HI,	"excellent with no high resists" },
+	{ SQUELCH_EXCELLENT_NO_SPL,	"excellent but not splendid" },
+	{ SQUELCH_ALL,		"everything except artifacts" },
+};
+
 byte squelch_level[TYPE_MAX];
 const size_t squelch_size = TYPE_MAX;
 
@@ -97,62 +130,35 @@ void squelch_birth_init(void)
 
 /*** Autoinscription stuff ***/
 
-/*
- * This code needs documenting.
- */
-int get_autoinscription_index(s16b k_idx)
-{
-	int i;
-
-	for (i = 0; i < inscriptions_count; i++)
-	{
-		if (k_idx == inscriptions[i].kind_idx)
-			return i;
-	}
-
-	return -1;
-}
-
-/*
- * DOCUMENT ME!
- */
 const char *get_autoinscription(s16b kind_idx)
 {
-	int i;
-
-	for (i = 0; i < inscriptions_count; i++)
-	{
-		if (kind_idx == inscriptions[i].kind_idx)
-			return quark_str(inscriptions[i].inscription_idx);
-	}
-
-	return 0;
+	struct object_kind *k = objkind_byid(kind_idx);
+	return k ? k->note : NULL;
 }
 
 /* Put the autoinscription on an object */
 int apply_autoinscription(object_type *o_ptr)
 {
 	char o_name[80];
-	cptr note = get_autoinscription(o_ptr->k_idx);
-	cptr existing_inscription = quark_str(o_ptr->note);
+	const char *note = get_autoinscription(o_ptr->k_idx);
 
 	/* Don't inscribe unaware objects */
 	if (!note || !object_flavor_is_aware(o_ptr))
 		return 0;
 
 	/* Don't re-inscribe if it's already inscribed */
-	if (existing_inscription)
+	if (o_ptr->note)
 		return 0;
 
 	/* Get an object description */
 	object_desc(o_name, sizeof(o_name), o_ptr, ODESC_PREFIX | ODESC_FULL);
 
 	if (note[0] != 0)
-		o_ptr->note = quark_add(note);
+		o_ptr->note = string_make(note);
 	else
-		o_ptr->note = 0;
+		o_ptr->note = NULL;
 
-	msg_format("You autoinscribe %s.", o_name);
+	msg("You autoinscribe %s.", o_name);
 
 	return 1;
 }
@@ -160,52 +166,23 @@ int apply_autoinscription(object_type *o_ptr)
 
 int remove_autoinscription(s16b kind)
 {
-	int i = get_autoinscription_index(kind);
-
-	/* It's not here. */
-	if (i == -1) return 0;
-
-	while (i < inscriptions_count - 1)
-	{
-		inscriptions[i] = inscriptions[i+1];
-		i++;
-	}
-
-	inscriptions_count--;
-
+	struct object_kind *k = objkind_byid(kind);
+	if (!k || !k->note)
+		return 0;
+	string_free(k->note);
+	k->note = NULL;
 	return 1;
 }
 
 
 int add_autoinscription(s16b kind, cptr inscription)
 {
-	int index;
-
-	/* Paranoia */
-	if (kind == 0) return 0;
-
-	/* If there's no inscription, remove it */
-	if (!inscription || (inscription[0] == 0))
-		return remove_autoinscription(kind);
-
-	index = get_autoinscription_index(kind);
-
-	if (index == -1)
-		index = inscriptions_count;
-
-	if (index >= AUTOINSCRIPTIONS_MAX)
-	{
-		msg_format("This inscription (%s) cannot be added because the inscription array is full!", inscription);
+	struct object_kind *k = objkind_byid(kind);
+	if (!k)
 		return 0;
-	}
-
-	inscriptions[index].kind_idx = kind;
-	inscriptions[index].inscription_idx = quark_add(inscription);
-
-	/* Only increment count if inscription added to end of array */
-	if (index == inscriptions_count)
-		inscriptions_count++;
-
+	if (!inscription)
+		return remove_autoinscription(kind);
+	k->note = string_make(inscription);
 	return 1;
 }
 
@@ -217,7 +194,7 @@ void autoinscribe_ground(void)
 	s16b this_o_idx, next_o_idx = 0;
 
 	/* Scan the pile of objects */
-	for (this_o_idx = cave_o_idx[py][px]; this_o_idx; this_o_idx = next_o_idx)
+	for (this_o_idx = cave->o_idx[py][px]; this_o_idx; this_o_idx = next_o_idx)
 	{
 		/* Get the next object */
 		next_o_idx = o_list[this_o_idx].next_o_idx;
@@ -292,17 +269,30 @@ byte squelch_level_of(const object_type *o_ptr)
 	object_kind *k_ptr = &k_info[o_ptr->k_idx];
 	byte value;
 	bitflag f[OF_SIZE];
+	int i;
 
 	object_flags_known(o_ptr, f);
 
-	if ((object_pval_is_visible(o_ptr)) && (o_ptr->pval < 0))
-		return SQUELCH_BAD;
+	/* CC: we need to redefine "bad" with multiple pvals
+	 * At the moment we use "all pvals known and negative" */
+	for (i = 0; i < o_ptr->num_pvals; i++) {
+		if (!object_this_pval_is_visible(o_ptr, i) ||
+			(o_ptr->pval[i] > 0))
+			break;
+
+		if (i == o_ptr->num_pvals)
+			return SQUELCH_BAD;
+	}
 
 	/* Deal with jewelry specially. */
 	if (object_is_jewelry(o_ptr))
 	{
-		if ((object_pval_is_visible(o_ptr)) && (o_ptr->pval > 0))
-			return SQUELCH_AVERAGE;
+		/* CC: average jewelry has at least one known positive pval */
+		for (i = 0; i < o_ptr->num_pvals; i++)
+			if ((object_pval_is_visible(o_ptr)) &&
+				(o_ptr->pval[i] > 0))
+				return SQUELCH_AVERAGE;
+
 		if ((o_ptr->to_h > 0) || (o_ptr->to_d > 0) || (o_ptr->to_a > 0))
 			return SQUELCH_AVERAGE;
 		if ((object_attack_plusses_are_visible(o_ptr) && ((o_ptr->to_h < 0) || (o_ptr->to_d < 0))) ||
@@ -421,7 +411,6 @@ void kind_squelch_when_unaware(object_kind *k_ptr)
 }
 
 
-
 /*
  * Determines if an object is eligible for squelching.
  */
@@ -430,26 +419,21 @@ bool squelch_item_ok(const object_type *o_ptr)
 	object_kind *k_ptr = &k_info[o_ptr->k_idx];
 	byte type;
 
+	if (p_ptr->unignoring)
+		return FALSE;
+
 	/* Don't squelch artifacts unless marked to be squelched */
-	if (artifact_p(o_ptr))
+	if (artifact_p(o_ptr) ||
+			check_for_inscrip(o_ptr, "!k") || check_for_inscrip(o_ptr, "!*"))
 		return FALSE;
 
-	/* Don't squelch stuff inscribed not to be destroyed (!k) */
-	if (check_for_inscrip(o_ptr, "!k") || check_for_inscrip(o_ptr, "!*"))
-		return FALSE;
-
-	/* Auto-squelch dead chests */
-	if (o_ptr->tval == TV_CHEST && o_ptr->pval == 0)
+	/* Do squelch individual objects that marked ignore */
+	if (o_ptr->ignore)
 		return TRUE;
 
-	/* check option for worthless kinds */
-	if (OPT(squelch_worthless) && o_ptr->tval != TV_GOLD)
-	{
-		if (object_flavor_is_aware(o_ptr) && k_ptr->cost == 0)
-			return TRUE;
-		if (object_is_known_cursed(o_ptr))
-			return TRUE;
-	}
+	/* Auto-squelch dead chests */
+	if (o_ptr->tval == TV_CHEST && o_ptr->pval[DEFAULT_PVAL] == 0)
+		return TRUE;
 
 	/* Do squelching by kind */
 	if (object_flavor_is_aware(o_ptr) ?
@@ -471,85 +455,6 @@ bool squelch_item_ok(const object_type *o_ptr)
 	else
 		return FALSE;
 }
-
-
-/*
- * Returns TRUE if an item should be hidden due to the player's
- * current settings.
- */
-bool squelch_hide_item(object_type *o_ptr)
-{
-	return (OPT(hide_squelchable) ? squelch_item_ok(o_ptr) : FALSE);
-}
-
-
-/*
- * Destroy all {squelch}able items.
- *
- * Imported, with thanks, from Ey... much cleaner than the original.
- */
-void squelch_items(void)
-{
-	int floor_list[MAX_FLOOR_STACK];
-	int floor_num, n;
-	int count = 0;
-
-	object_type *o_ptr;
-
-	/* Set the hook and scan the floor */
-	item_tester_hook = squelch_item_ok;
-	floor_num = scan_floor(floor_list, N_ELEMENTS(floor_list), p_ptr->py, p_ptr->px, 0x01);
-
-	if (floor_num)
-	{
-		for (n = 0; n < floor_num; n++)
-		{
-			o_ptr = &o_list[floor_list[n]];
-
-			/* Avoid artifacts */
-			if (artifact_p(o_ptr)) continue;
-
-			if (item_tester_okay(o_ptr))
-			{
-				/* Destroy item */
-				floor_item_increase(floor_list[n], -o_ptr->number);
-				floor_item_optimize(floor_list[n]);
-				count++;
-			}
-		}
-	}
-
-	/* Scan through the slots backwards */
-	for (n = INVEN_PACK - 1; n >= 0; n--)
-	{
-		o_ptr = &p_ptr->inventory[n];
-
-		/* Skip non-objects and artifacts */
-		if (!o_ptr->k_idx) continue;
-		if (artifact_p(o_ptr)) continue;
-
-		if (item_tester_okay(o_ptr))
-		{
-			/* Destroy item */
-			inven_item_increase(n, -o_ptr->number);
-			inven_item_optimize(n);
-			count++;
-		}
-	}
-
-	item_tester_hook = NULL;
-
-	/* Mention casualties */
-	if (count > 0)
-	{
-		message_format(MSG_DESTROY, 0, "%d item%s squelched.",
-		               count, ((count > 1) ? "s" : ""));
-
-		/* Combine/reorder the pack */
-		p_ptr->notice |= (PN_COMBINE | PN_REORDER | PN_SORT_QUIVER);
-	}
-}
-
 
 /*
  * Drop all {squelch}able items.

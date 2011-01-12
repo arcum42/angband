@@ -53,9 +53,9 @@ static void dump_pref_file(void (*dump)(ang_file *), const char *title, int row)
 	
 		prt("", 0, 0);
 		if (prefs_save(buf, dump, title))
-			msg_print(format("Dumped %s", strstr(title, " ") + 1));
+			msg("Dumped %s", strstr(title, " ") + 1);
 		else
-			msg_print("Failed");
+			msg("Failed");
 	}
 
 	screen_load();
@@ -150,6 +150,14 @@ static void option_toggle_menu(const char *name, int page)
 	m->selections = "abcdefghijklmopqrsuvwxz";
 	m->flags = MN_DBL_TAP;
 
+	/* We add 10 onto the page amount to indicate we're at birth */
+	if (page == OPT_PAGE_BIRTH) {
+		m->prompt = "You can only modify these options at character birth.";
+		m->flags |= MN_NO_ACTION;
+	} else if (page == OPT_PAGE_BIRTH + 10) {
+		page -= 10;
+	}
+
 	/* for this particular menu */
 	m->title = name;
 
@@ -173,6 +181,14 @@ static void option_toggle_menu(const char *name, int page)
 	screen_load();
 
 	mem_free(m);
+}
+
+/**
+ * Edit birth options.
+ */
+void do_cmd_options_birth(void)
+{
+	option_toggle_menu("Birth options", OPT_PAGE_BIRTH + 10);
 }
 
 
@@ -463,7 +479,7 @@ static void macro_query(const char *title, int row)
 	{
 		/* Prompt */
 		prt("", 0, 0);
-		msg_print("Found no macro.");
+		msg("Found no macro.");
 	}
 	
 	/* Found one */
@@ -480,7 +496,7 @@ static void macro_query(const char *title, int row)
 	
 		/* Prompt */
 		prt("", 0, 0);
-		msg_print("Found a macro.");
+		msg("Found a macro.");
 	}
 }
 
@@ -515,7 +531,7 @@ static void macro_create(const char *title, int row)
 		
 		/* Prompt */
 		prt("", 0, 0);
-		msg_print("Added a macro.");
+		msg("Added a macro.");
 	}					
 }
 
@@ -534,7 +550,7 @@ static void macro_remove(const char *title, int row)
 	
 	/* Prompt */
 	prt("", 0, 0);
-	msg_print("Removed a macro.");
+	msg("Removed a macro.");
 }
 
 static void keymap_pref_append(const char *title, int row)
@@ -750,7 +766,7 @@ static void visuals_reset(const char *title, int row)
 
 	/* Message */
 	prt("", 0, 0);
-	msg_print("Visual attr/char tables reset.");
+	msg("Visual attr/char tables reset.");
 	message_flush();
 }
 
@@ -1110,13 +1126,13 @@ static void do_cmd_pref_file_hack(long row)
 		{
 			/* Mention failure */
 			prt("", 0, 0);
-			msg_format("Failed to load '%s'!", ftmp);
+			msg("Failed to load '%s'!", ftmp);
 		}
 		else
 		{
 			/* Mention success */
 			prt("", 0, 0);
-			msg_format("Loaded '%s'.", ftmp);
+			msg("Loaded '%s'.", ftmp);
 		}
 	}
 
@@ -1147,50 +1163,6 @@ static void options_load_pref_file(const char *n, int row)
 
 
 /*** Quality-squelch menu ***/
-
-
-typedef struct
-{
-	int enum_val;
-	const char *name;
-} quality_name_struct;
-
-static quality_name_struct quality_choices[TYPE_MAX] =
-{
-	{ TYPE_WEAPON_POINTY,	"Pointy Melee Weapons" },
-	{ TYPE_WEAPON_BLUNT,	"Blunt Melee Weapons" },
-	{ TYPE_SHOOTER,		"Missile weapons" },
-	{ TYPE_MISSILE_SLING,	"Shots and Pebbles" },
-	{ TYPE_MISSILE_BOW,	"Arrows" },
-	{ TYPE_MISSILE_XBOW,	"Bolts" },
-	{ TYPE_ARMOR_ROBE,	"Robes" },
-	{ TYPE_ARMOR_BODY,	"Body Armor" },
-	{ TYPE_ARMOR_CLOAK,	"Cloaks" },
-	{ TYPE_ARMOR_ELVEN_CLOAK,	"Elven Cloaks" },
-	{ TYPE_ARMOR_SHIELD,	"Shields" },
-	{ TYPE_ARMOR_HEAD,	"Headgear" },
-	{ TYPE_ARMOR_HANDS,	"Handgear" },
-	{ TYPE_ARMOR_FEET,	"Footgear" },
-	{ TYPE_DIGGER,		"Diggers" },
-	{ TYPE_RING,		"Rings" },
-	{ TYPE_AMULET,		"Amulets" },
-	{ TYPE_LIGHT, 		"Lights" },
-};
-
-/*
- * The names for the various kinds of quality
- */
-static quality_name_struct quality_values[SQUELCH_MAX] =
-{
-	{ SQUELCH_NONE,		"no squelch" },
-	{ SQUELCH_BAD,		"bad" },
-	{ SQUELCH_AVERAGE,	"average" },
-	{ SQUELCH_GOOD,		"good" },
-	{ SQUELCH_EXCELLENT_NO_HI,	"excellent with no high resists" },
-	{ SQUELCH_EXCELLENT_NO_SPL,	"excellent but not splendid" },
-	{ SQUELCH_ALL,		"everything except artifacts" },
-};
-
 
 /* Structure to describe tval/description pairings. */
 typedef struct
@@ -1677,8 +1649,7 @@ void do_cmd_options_item(const char *title, int row)
 static menu_type *option_menu;
 static menu_action option_actions[] = 
 {
-	{ 0, 'a', "Interface options", option_toggle_menu },
-	{ 0, 'b', "Display options", option_toggle_menu },
+	{ 0, 'a', "Interface and display options", option_toggle_menu },
 	{ 0, 'e', "Warning and disturbance options", option_toggle_menu },
 	{ 0, 'f', "Birth (difficulty) options", option_toggle_menu },
 	{ 0, 'g', "Cheat options", option_toggle_menu },
@@ -1751,64 +1722,5 @@ bool squelch_tval(int tval)
 			return TRUE;
 	}
 
-	return FALSE;
-}
-
-
-
-/*
- * Inquire whether the player wishes to squelch items similar to an object
- *
- * Returns whether the item is now squelched.
- */
-bool squelch_interactive(const object_type *o_ptr)
-{
-	char out_val[70];
-
-	if (squelch_tval(o_ptr->tval))
-	{
-		char sval_name[50];
-
-		/* Obtain plural form without a quantity */
-		object_desc(sval_name, sizeof sval_name, o_ptr,
-					ODESC_BASE | ODESC_PLURAL);
-		/* XXX Eddie while correct in a sense, to squelch all torches on torch of brightness you get the message "Ignore Wooden Torches of Brightness in future? " */
-		strnfmt(out_val, sizeof out_val, "Ignore %s in future? ",
-				sval_name);
-
-		if (!artifact_p(o_ptr) || !object_flavor_is_aware(o_ptr))
-		{
-			if (get_check(out_val))
-			{
-				object_squelch_flavor_of(o_ptr);
-				msg_format("Ignoring %s from now on.", sval_name);
-				return TRUE;
-			}
-		}
-		/* XXX Eddie need to add generalized squelching, e.g. con rings with pval < 3 */
-		if (!object_is_jewelry(o_ptr) || (squelch_level_of(o_ptr) != SQUELCH_BAD))
-			return FALSE;
-	}
-
-	if (object_was_sensed(o_ptr) || object_was_worn(o_ptr) || object_is_known_not_artifact(o_ptr))
-	{
-		byte value = squelch_level_of(o_ptr);
-		int type = squelch_type_of(o_ptr);
-
-/* XXX Eddie on pseudoed cursed artifact, only showed {cursed}, asked to ignore artifacts */
-		if ((value != SQUELCH_MAX) && ((value == SQUELCH_BAD) || !object_is_jewelry(o_ptr)))
-		{
-
-			strnfmt(out_val, sizeof out_val, "Ignore all %s that are %s in future? ",
-				quality_choices[type].name, quality_values[value].name);
-
-			if (get_check(out_val))
-			{
-				squelch_level[type] = value;
-				return TRUE;
-			}
-		}
-
-	}
 	return FALSE;
 }

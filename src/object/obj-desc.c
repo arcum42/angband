@@ -20,6 +20,24 @@
 #include "squelch.h"
 #include "tvalsval.h"
 
+/* Work out which pval governs a particular flag.
+ * We assume that we are only called if this pval and flag exist and are
+ * known */
+int which_pval(const object_type *o_ptr, const int flag)
+{
+	int i;
+	bitflag f[MAX_PVALS][OF_SIZE];
+
+	object_pval_flags(o_ptr, f);
+
+	for (i = 0; i < MAX_PVALS; i++) {
+		if (of_has(f[i], flag))
+			return i;
+	}
+
+	assert(0);
+}
+
 /*
  * Puts a very stripped-down version of an object's name into buf.
  * If easy_know is TRUE, then the IDed names are used, otherwise
@@ -38,12 +56,12 @@ void object_kind_name(char *buf, size_t max, int k_idx, bool easy_know)
 	{
 		if (k_ptr->tval == TV_FOOD && k_ptr->sval > SV_FOOD_MIN_SHROOM)
 		{
-			strnfmt(buf, max, "%s Mushroom", flavor_info[k_ptr->flavor].text);
+			strnfmt(buf, max, "%s Mushroom", k_ptr->flavor->text);
 		}
 		else
 		{
 			/* Plain flavour (e.g. Copper) will do. */
-			my_strcpy(buf, flavor_info[k_ptr->flavor].text, max);
+			my_strcpy(buf, k_ptr->flavor->text, max);
 		}
 	}
 
@@ -113,7 +131,7 @@ static const char *obj_desc_get_modstr(const object_type *o_ptr)
 		case TV_POTION:
 		case TV_FOOD:
 		case TV_SCROLL:
-			return flavor_info[k_ptr->flavor].text;
+			return k_ptr->flavor ? k_ptr->flavor->text : "";
 
 		case TV_MAGIC_BOOK:
 		case TV_PRAYER_BOOK:
@@ -472,13 +490,13 @@ static size_t obj_desc_chest(const object_type *o_ptr, char *buf, size_t max, si
 	if (!known) return end;
 
 	/* May be "empty" */
-	if (!o_ptr->pval)
+	if (!o_ptr->pval[DEFAULT_PVAL])
 		strnfcat(buf, max, &end, " (empty)");
 
 	/* May be "disarmed" */
-	else if (o_ptr->pval < 0)
+	else if (o_ptr->pval[DEFAULT_PVAL] < 0)
 	{
-		if (chest_traps[0 - o_ptr->pval])
+		if (chest_traps[0 - o_ptr->pval[DEFAULT_PVAL]])
 			strnfcat(buf, max, &end, " (disarmed)");
 		else
 			strnfcat(buf, max, &end, " (unlocked)");
@@ -488,7 +506,7 @@ static size_t obj_desc_chest(const object_type *o_ptr, char *buf, size_t max, si
 	else
 	{
 		/* Describe the traps */
-		switch (chest_traps[o_ptr->pval])
+		switch (chest_traps[o_ptr->pval[DEFAULT_PVAL]])
 		{
 			case 0:
 				strnfcat(buf, max, &end, " (Locked)");
@@ -563,7 +581,7 @@ static size_t obj_desc_combat(const object_type *o_ptr, char *buf, size_t max,
 			/* Display shooting power as part of the multiplier */
 			if (of_has(flags, OF_MIGHT) &&
 			    (spoil || object_flag_is_known(o_ptr, OF_MIGHT)))
-				strnfcat(buf, max, &end, " (x%d)", (o_ptr->sval % 10) + o_ptr->pval);
+				strnfcat(buf, max, &end, " (x%d)", (o_ptr->sval % 10) + o_ptr->pval[which_pval(o_ptr, OF_MIGHT)]);
 			else
 				strnfcat(buf, max, &end, " (x%d)", o_ptr->sval % 10);
 			break;
@@ -619,17 +637,26 @@ static size_t obj_desc_light(const object_type *o_ptr, char *buf, size_t max, si
 	return end;
 }
 
-static size_t obj_desc_pval(const object_type *o_ptr, char *buf, size_t max, size_t end)
+static size_t obj_desc_pval(const object_type *o_ptr, char *buf, size_t max,
+	size_t end, bool spoil)
 {
 	bitflag f[OF_SIZE];
+	int i;
 
 	object_flags(o_ptr, f);
 
 	if (!flags_test(f, OF_SIZE, OF_PVAL_MASK, FLAG_END)) return end;
 
-	strnfcat(buf, max, &end, " (%+d", o_ptr->pval);
+	strnfcat(buf, max, &end, " <");
+	for (i = 0; i < o_ptr->num_pvals; i++) {
+		if (spoil || object_this_pval_is_visible(o_ptr, i)) {
+			if (i > 0)
+				strnfcat(buf, max, &end, ", ");
+			strnfcat(buf, max, &end, "%+d", o_ptr->pval[i]);
+		}
+	}
 
-	if (!of_has(f, OF_HIDE_TYPE))
+	if ((o_ptr->num_pvals == 1) && !of_has(f, OF_HIDE_TYPE))
 	{
 		if (of_has(f, OF_STEALTH))
 			strnfcat(buf, max, &end, " stealth");
@@ -640,10 +667,10 @@ static size_t obj_desc_pval(const object_type *o_ptr, char *buf, size_t max, siz
 		else if (of_has(f, OF_SPEED))
 			strnfcat(buf, max, &end, " speed");
 		else if (of_has(f, OF_BLOWS))
-			strnfcat(buf, max, &end, " attack%s", PLURAL(o_ptr->pval));
+			strnfcat(buf, max, &end, " attack%s", PLURAL(o_ptr->pval[which_pval(o_ptr, OF_BLOWS)]));
 	}
 
-	strnfcat(buf, max, &end, ")");
+	strnfcat(buf, max, &end, ">");
 
 	return end;
 }
@@ -656,7 +683,7 @@ static size_t obj_desc_charges(const object_type *o_ptr, char *buf, size_t max, 
 
 	/* Wands and Staffs have charges */
 	if (aware && (o_ptr->tval == TV_STAFF || o_ptr->tval == TV_WAND))
-		strnfcat(buf, max, &end, " (%d charge%s)", o_ptr->pval, PLURAL(o_ptr->pval));
+		strnfcat(buf, max, &end, " (%d charge%s)", o_ptr->pval[DEFAULT_PVAL], PLURAL(o_ptr->pval[DEFAULT_PVAL]));
 
 	/* Charging things */
 	else if (o_ptr->timeout > 0)
@@ -702,7 +729,7 @@ static size_t obj_desc_inscrip(const object_type *o_ptr, char *buf, size_t max, 
 
 	/* Get inscription */
 	if (o_ptr->note)
-		u[n++] = quark_str(o_ptr->note);
+		u[n++] = o_ptr->note;
 
 	/* Use special inscription, if any */
 	if (!object_is_known(o_ptr) && feel)
@@ -801,7 +828,7 @@ size_t object_desc(char *buf, size_t max, const object_type *o_ptr,
 
 	if (o_ptr->tval == TV_GOLD)
 		return strnfmt(buf, max, "%d gold pieces worth of %s%s",
-				o_ptr->pval, k_ptr->name,
+				o_ptr->pval[DEFAULT_PVAL], k_ptr->name,
 				squelch_item_ok(o_ptr) ? " {squelch}" : "");
 	else if (!o_ptr->tval)
 		return strnfmt(buf, max, "(nothing)");
@@ -825,7 +852,7 @@ size_t object_desc(char *buf, size_t max, const object_type *o_ptr,
 	if (mode & ODESC_EXTRA)
 	{
 		if (spoil || object_pval_is_visible(o_ptr))
-			end = obj_desc_pval(o_ptr, buf, max, end);
+			end = obj_desc_pval(o_ptr, buf, max, end, spoil);
 
 		end = obj_desc_charges(o_ptr, buf, max, end);
 

@@ -2,6 +2,7 @@
 #define INCLUDED_OBJECT_H
 
 #include "angband.h"
+#include "cave.h"
 #include "z-textblock.h"
 
 /** Maximum number of scroll titles generated */
@@ -111,6 +112,7 @@ bool object_flavor_is_aware(const object_type *o_ptr);
 bool object_flavor_was_tried(const object_type *o_ptr);
 bool object_effect_is_known(const object_type *o_ptr);
 bool object_pval_is_visible(const object_type *o_ptr);
+bool object_this_pval_is_visible(const object_type *o_ptr, int pval);
 bool object_ego_is_visible(const object_type *o_ptr);
 bool object_attack_plusses_are_visible(const object_type *o_ptr);
 bool object_defence_plusses_are_visible(const object_type *o_ptr);
@@ -124,7 +126,6 @@ void object_notice_ego(object_type *o_ptr);
 void object_notice_sensing(object_type *o_ptr);
 void object_sense_artifact(object_type *o_ptr);
 void object_notice_effect(object_type *o_ptr);
-void object_notice_slay(object_type *o_ptr, int flag);
 void object_notice_attack_plusses(object_type *o_ptr);
 bool object_notice_flag(object_type *o_ptr, int flag);
 bool object_notice_flags(object_type *o_ptr, bitflag flags[OF_SIZE]);
@@ -146,11 +147,9 @@ void object_know_all_flags(object_type *o_ptr);
 /* obj-desc.c */
 void object_kind_name(char *buf, size_t max, int k_idx, bool easy_know);
 size_t object_desc(char *buf, size_t max, const object_type *o_ptr, odesc_detail_t mode);
+int which_pval(const object_type *o_ptr, const int flag);
 
 /* obj-info.c */
-extern const slay_t slay_table[];
-size_t num_slays(void);
-
 textblock *object_info(const object_type *o_ptr, oinfo_detail_t mode);
 textblock *object_info_ego(struct ego_item *ego);
 void object_info_spoil(ang_file *f, const object_type *o_ptr, int wrap);
@@ -162,7 +161,7 @@ bool init_obj_alloc(void);
 s16b get_obj_num(int level, bool good);
 void object_prep(object_type *o_ptr, struct object_kind *kind, int lev, aspect rand_aspect);
 void apply_magic(object_type *o_ptr, int lev, bool okay, bool good, bool great);
-bool make_object(object_type *j_ptr, int lev, bool good, bool great);
+bool make_object(struct cave *c, object_type *j_ptr, int lev, bool good, bool great);
 void make_gold(object_type *j_ptr, int lev, int coin_type);
 
 void set_ego_xtra_sustain(bitflag flags[OF_SIZE]);
@@ -178,11 +177,14 @@ bool verify_item(cptr prompt, int item);
 bool get_item(int *cp, cptr pmt, cptr str, cmd_code cmd, int mode);
 
 /* obj-util.c */
-object_kind *objkind_get(int tval, int sval);
+struct object_kind *objkind_get(int tval, int sval);
+struct object_kind *objkind_byid(int kidx);
 void flavor_init(void);
 void reset_visuals(bool load_prefs);
 void object_flags(const object_type *o_ptr, bitflag flags[OF_SIZE]);
 void object_flags_known(const object_type *o_ptr, bitflag flags[OF_SIZE]);
+void object_pval_flags(const object_type *o_ptr, bitflag flags[MAX_PVALS][OF_SIZE]);
+void object_pval_flags_known(const object_type *o_ptr, bitflag flags[MAX_PVALS][OF_SIZE]);
 char index_to_label(int i);
 s16b label_to_inven(int c);
 s16b label_to_equip(int c);
@@ -197,7 +199,7 @@ void excise_object_idx(int o_idx);
 void delete_object_idx(int o_idx);
 void delete_object(int y, int x);
 void compact_objects(int size);
-void wipe_o_list(void);
+void wipe_o_list(struct cave *c);
 s16b o_pop(void);
 object_type *get_first_object(int y, int x);
 object_type *get_next_object(const object_type *o_ptr);
@@ -208,8 +210,9 @@ void object_absorb(object_type *o_ptr, const object_type *j_ptr);
 void object_wipe(object_type *o_ptr);
 void object_copy(object_type *o_ptr, const object_type *j_ptr);
 void object_copy_amt(object_type *dst, object_type *src, int amt);
-s16b floor_carry(int y, int x, object_type *j_ptr);
-void drop_near(object_type *j_ptr, int chance, int y, int x, bool verbose);
+void object_split(struct object *dest, struct object *src, int amt);
+s16b floor_carry(struct cave *c, int y, int x, object_type *j_ptr);
+void drop_near(struct cave *c, object_type *j_ptr, int chance, int y, int x, bool verbose);
 void acquirement(int y1, int x1, int level, int num, bool great);
 void inven_item_charges(int item);
 void inven_item_describe(int item);

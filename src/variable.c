@@ -41,7 +41,7 @@ const char *copyright =
 bool arg_wizard;			/* Command arg -- Request wizard mode */
 bool arg_rebalance;			/* Command arg -- Rebalance monsters */
 int arg_graphics;			/* Command arg -- Request graphics mode */
-bool arg_graphics_nice;	        /* Command arg -- Request nice graphics mode */
+bool arg_graphics_nice;			/* Command arg -- Request nice graphics mode */
 
 /*
  * Various things
@@ -64,9 +64,6 @@ s16b num_repro;			/* Current reproducer count */
 char summon_kin_type;		/* Hack -- See summon_specific() */
 
 s32b turn;				/* Current game turn */
-
-s32b old_turn;			/* Hack -- Level feeling counter */
-
 
 int use_graphics;		/* The "graphics" mode is enabled */
 bool use_graphics_nice;	        /* The 'nice' "graphics" mode is enabled */
@@ -96,20 +93,6 @@ s16b o_cnt = 0;			/* Number of live objects */
 
 s16b mon_max = 1;	/* Number of allocated monsters */
 s16b mon_cnt = 0;	/* Number of live monsters */
-
-
-
-/*
- * Dungeon variables
- */
-
-byte feeling;			/* Most recent feeling */
-s16b rating;			/* Level's current rating */
-
-bool good_item_flag;	/* True if "Artifact" on this level */
-
-bool closing_flag;		/* Dungeon is closing */
-
 
 /*
  * Buffer to hold the current savefile name
@@ -444,59 +427,6 @@ u16b *temp_g;
 byte *temp_y;
 byte *temp_x;
 
-
-/*
- * Array[DUNGEON_HGT][256] of cave grid info flags (padded)
- *
- * These arrays are padded to a width of 256 to allow fast access to elements
- * in the array via "grid" values (see the GRID() macros).
- */
-byte (*cave_info)[256];
-byte (*cave_info2)[256];
-
-/*
- * Array[DUNGEON_HGT][DUNGEON_WID] of cave grid feature codes
- */
-byte (*cave_feat)[DUNGEON_WID];
-
-
-/*
- * Array[DUNGEON_HGT][DUNGEON_WID] of cave grid object indexes
- *
- * Note that this array yields the index of the top object in the stack of
- * objects in a given grid, using the "next_o_idx" field in that object to
- * indicate the next object in the stack, and so on, using zero to indicate
- * "nothing".  This array replicates the information contained in the object
- * list, for efficiency, providing extremely fast determination of whether
- * any object is in a grid, and relatively fast determination of which objects
- * are in a grid.
- */
-s16b (*cave_o_idx)[DUNGEON_WID];
-
-/*
- * Array[DUNGEON_HGT][DUNGEON_WID] of cave grid monster indexes
- *
- * Note that this array yields the index of the monster or player in a grid,
- * where negative numbers are used to represent the player, positive numbers
- * are used to represent a monster, and zero is used to indicate "nobody".
- * This array replicates the information contained in the monster list and
- * the player structure, but provides extremely fast determination of which,
- * if any, monster or player is in any given grid.
- */
-s16b (*cave_m_idx)[DUNGEON_WID];
-
-
-/*
- * Array[DUNGEON_HGT][DUNGEON_WID] of cave grid flow "cost" values
- */
-byte (*cave_cost)[DUNGEON_WID];
-
-/*
- * Array[DUNGEON_HGT][DUNGEON_WID] of cave grid flow "when" stamps
- */
-byte (*cave_when)[DUNGEON_WID];
-
-
 /*
  * Array[z_info->o_max] of dungeon objects
  */
@@ -628,8 +558,6 @@ maxima *z_info;
 /*
  * The vault generation arrays
  */
-vault_type *v_info;
-
 feature_type *f_info;
 
 object_kind *k_info;
@@ -643,39 +571,30 @@ artifact_type *a_info;
  * The ego-item arrays
  */
 ego_item_type *e_info;
-flag_cache *slay_cache;
 
 /*
  * The monster race arrays
  */
 monster_race *r_info;
 
-player_race *p_info;
-player_class *c_info;
-/*
- * The player history arrays
- */
-hist_type *h_info;
+struct player_race *races;
+struct player_class *classes;
+struct vault *vaults;
+struct object_kind *objkinds;
 
 owner_type *b_info;
 
-/*
- * The object flavor arrays
- */
-flavor_type *flavor_info;
+struct flavor *flavors;
 
 /*
  * The spell arrays
  */
 spell_type *s_info;
 
-
 /*
- * The spell_list is built from s_info to facilitate a quick lookup
- * of the spell when realm, book and position in book are known.
+ * The hints array
  */
-s16b spell_list[MAX_REALMS][BOOKS_PER_REALM][SPELLS_PER_BOOK];
-
+struct hint *hints;
 
 /*
  * Hack -- The special Angband "System Suffix"
@@ -788,14 +707,6 @@ bool use_transparency = FALSE;
  * Sound hook (for playing FX).
  */
 void (*sound_hook)(int sound);
-
-
-/*
- * For autoinscriptions.
- */
-autoinscription *inscriptions = 0;
-u16b inscriptions_count = 0;
-
 
 /* Delay in centiseconds before moving to allow another keypress */
 /* Zero means normal instant movement. */

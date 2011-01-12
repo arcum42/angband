@@ -20,6 +20,7 @@
 #include "cave.h"
 #include "generate.h"
 #include "history.h"
+#include "monster/monster.h"
 #include "object/tvalsval.h"
 #include "object/object.h"
 #include "target.h"
@@ -56,11 +57,11 @@ void delete_monster_idx(int i)
 	if (target_get_monster() == i) target_set_monster(0);
 
 	/* Hack -- remove tracked monster */
-	if (p_ptr->health_who == i) health_track(0);
+	if (p_ptr->health_who == i) health_track(p_ptr, 0);
 
 
 	/* Monster is gone */
-	cave_m_idx[y][x] = 0;
+	cave->m_idx[y][x] = 0;
 
 
 	/* Delete objects */
@@ -89,7 +90,7 @@ void delete_monster_idx(int i)
 	mon_cnt--;
 
 	/* Visual update */
-	light_spot(y, x);
+	cave_light_spot(cave, y, x);
 }
 
 
@@ -102,7 +103,7 @@ void delete_monster(int y, int x)
 	if (!in_bounds(y, x)) return;
 
 	/* Delete the monster (if any) */
-	if (cave_m_idx[y][x] > 0) delete_monster_idx(cave_m_idx[y][x]);
+	if (cave->m_idx[y][x] > 0) delete_monster_idx(cave->m_idx[y][x]);
 }
 
 
@@ -130,7 +131,7 @@ static void compact_monsters_aux(int i1, int i2)
 	x = m_ptr->fx;
 
 	/* Update the cave */
-	cave_m_idx[y][x] = i2;
+	cave->m_idx[y][x] = i2;
 
 	/* Repair objects being carried by monster */
 	for (this_o_idx = m_ptr->hold_o_idx; this_o_idx; this_o_idx = next_o_idx)
@@ -181,7 +182,7 @@ void compact_monsters(int size)
 
 
 	/* Message (only if compacting) */
-	if (size) msg_print("Compacting monsters...");
+	if (size) msg("Compacting monsters...");
 
 
 	/* Compact at least 'size' objects */
@@ -254,7 +255,7 @@ void compact_monsters(int size)
  * This is an efficient method of simulating multiple calls to the
  * "delete_monster()" function, with no visual effects.
  */
-void wipe_mon_list(void)
+void wipe_mon_list(struct cave *c, struct player *p)
 {
 	int i;
 
@@ -274,7 +275,7 @@ void wipe_mon_list(void)
 		r_ptr->cur_num--;
 
 		/* Monster is gone */
-		cave_m_idx[m_ptr->fy][m_ptr->fx] = 0;
+		c->m_idx[m_ptr->fy][m_ptr->fx] = 0;
 
 		/* Wipe the Monster */
 		(void)WIPE(m_ptr, monster_type);
@@ -293,9 +294,8 @@ void wipe_mon_list(void)
 	target_set_monster(0);
 
 	/* Hack -- no more tracking */
-	health_track(0);
+	health_track(p, 0);
 }
-
 
 /*
  * Get and return the index of a "free" monster.
@@ -344,7 +344,7 @@ s16b mon_pop(void)
 
 
 	/* Warn the player (except during dungeon creation) */
-	if (character_dungeon) msg_print("Too many monsters!");
+	if (character_dungeon) msg("Too many monsters!");
 
 	/* Try not to crash */
 	return (0);
@@ -1319,7 +1319,7 @@ void update_mon(int m_idx, bool full)
 			m_ptr->ml = TRUE;
 
 			/* Draw the monster */
-			light_spot(fy, fx);
+			cave_light_spot(cave, fy, fx);
 
 			/* Update health bar as needed */
 			if (p_ptr->health_who == m_idx) p_ptr->redraw |= (PR_HEALTH);
@@ -1345,7 +1345,7 @@ void update_mon(int m_idx, bool full)
 			m_ptr->ml = FALSE;
 
 			/* Erase the monster */
-			light_spot(fy, fx);
+			cave_light_spot(cave, fy, fx);
 
 			/* Update health bar as needed */
 			if (p_ptr->health_who == m_idx) p_ptr->redraw |= (PR_HEALTH);
@@ -1502,13 +1502,13 @@ void monster_swap(int y1, int x1, int y2, int x2)
 	monster_race *r_ptr;
 
 	/* Monsters */
-	m1 = cave_m_idx[y1][x1];
-	m2 = cave_m_idx[y2][x2];
+	m1 = cave->m_idx[y1][x1];
+	m2 = cave->m_idx[y2][x2];
 
 
 	/* Update grids */
-	cave_m_idx[y1][x1] = m2;
-	cave_m_idx[y2][x2] = m1;
+	cave->m_idx[y1][x1] = m2;
+	cave->m_idx[y2][x2] = m1;
 
 
 	/* Monster 1 */
@@ -1599,29 +1599,20 @@ void monster_swap(int y1, int x1, int y2, int x2)
 
 
 	/* Redraw */
-	light_spot(y1, x1);
-	light_spot(y2, x2);
+	cave_light_spot(cave, y1, x1);
+	cave_light_spot(cave, y2, x2);
 }
 
-
-/*
- * Place the player in the dungeon XXX XXX
- */
-s16b player_place(int y, int x)
+void player_place(struct cave *c, struct player *p, int y, int x)
 {
-	/* Paranoia XXX XXX */
-	if (cave_m_idx[y][x] != 0) return (0);
-
+	assert(!c->m_idx[y][x]);
 
 	/* Save player location */
-	p_ptr->py = y;
-	p_ptr->px = x;
+	p->py = y;
+	p->px = x;
 
 	/* Mark cave grid */
-	cave_m_idx[y][x] = -1;
-
-	/* Success */
-	return (-1);
+	c->m_idx[y][x] = -1;
 }
 
 
@@ -1637,7 +1628,7 @@ s16b monster_place(int y, int x, monster_type *n_ptr)
 
 
 	/* Paranoia XXX XXX */
-	if (cave_m_idx[y][x] != 0) return (0);
+	if (cave->m_idx[y][x] != 0) return (0);
 
 
 	/* Get a new record */
@@ -1647,7 +1638,7 @@ s16b monster_place(int y, int x, monster_type *n_ptr)
 	if (m_idx)
 	{
 		/* Make a new monster */
-		cave_m_idx[y][x] = m_idx;
+		cave->m_idx[y][x] = m_idx;
 
 		/* Get the new monster */
 		m_ptr = &mon_list[m_idx];
@@ -1719,7 +1710,7 @@ static bool place_monster_one(int y, int x, int r_idx, bool slp)
 	if (!cave_empty_bold(y, x)) return (FALSE);
 
 	/* Hack -- no creation on glyph of warding */
-	if (cave_feat[y][x] == FEAT_GLYPH) return (FALSE);
+	if (cave->feat[y][x] == FEAT_GLYPH) return (FALSE);
 
 
 	/* Paranoia */
@@ -1758,20 +1749,20 @@ static bool place_monster_one(int y, int x, int r_idx, bool slp)
 		if (rf_has(r_ptr->flags, RF_UNIQUE))
 		{
 			/* Message for cheaters */
-			if (OPT(cheat_hear)) msg_format("Deep Unique (%s).", name);
+			if (OPT(cheat_hear)) msg("Deep Unique (%s).", name);
 
 			/* Boost rating by twice delta-depth */
-			rating += (r_ptr->level - p_ptr->depth) * 2;
+			cave->rating += (r_ptr->level - p_ptr->depth) * 2;
 		}
 
 		/* Normal monsters */
 		else
 		{
 			/* Message for cheaters */
-			if (OPT(cheat_hear)) msg_format("Deep Monster (%s).", name);
+			if (OPT(cheat_hear)) msg("Deep Monster (%s).", name);
 
 			/* Boost rating by delta-depth */
-			rating += (r_ptr->level - p_ptr->depth);
+			cave->rating += (r_ptr->level - p_ptr->depth);
 		}
 	}
 
@@ -1779,7 +1770,7 @@ static bool place_monster_one(int y, int x, int r_idx, bool slp)
 	else if (rf_has(r_ptr->flags, RF_UNIQUE))
 	{
 		/* Unique monsters induce message */
-		if (OPT(cheat_hear)) msg_format("Unique (%s).", name);
+		if (OPT(cheat_hear)) msg("Unique (%s).", name);
 	}
 
 
@@ -1865,7 +1856,7 @@ static bool place_monster_one(int y, int x, int r_idx, bool slp)
 /*
  * Attempt to place a "group" of monsters around the given location
  */
-static bool place_monster_group(int y, int x, int r_idx, bool slp)
+static bool place_monster_group(struct cave *c, int y, int x, int r_idx, bool slp)
 {
 	monster_race *r_ptr = &r_info[r_idx];
 
@@ -1909,7 +1900,7 @@ static bool place_monster_group(int y, int x, int r_idx, bool slp)
 
 
 	/* Save the rating */
-	old = rating;
+	old = c->rating;
 
 	/* Start on the monster */
 	hack_n = 1;
@@ -1944,7 +1935,7 @@ static bool place_monster_group(int y, int x, int r_idx, bool slp)
 	}
 
 	/* Hack -- restore the rating */
-	rating = old;
+	c->rating = old;
 
 
 	/* Success */
@@ -2001,12 +1992,13 @@ static bool place_monster_okay(int r_idx)
  * Note the use of the new "monster allocation table" code to restrict
  * the "get_mon_num()" function to "legal" escort types.
  */
-bool place_monster_aux(int y, int x, int r_idx, bool slp, bool grp)
+bool place_monster_aux(struct cave *c, int y, int x, int r_idx, bool slp, bool grp)
 {
 	int i;
 
 	monster_race *r_ptr = &r_info[r_idx];
 
+	assert(c);
 
 	/* Place one monster, or fail */
 	if (!place_monster_one(y, x, r_idx, slp)) return (FALSE);
@@ -2020,7 +2012,7 @@ bool place_monster_aux(int y, int x, int r_idx, bool slp, bool grp)
 	if (rf_has(r_ptr->flags, RF_FRIENDS))
 	{
 		/* Attempt to place a group */
-		(void)place_monster_group(y, x, r_idx, slp);
+		(void)place_monster_group(c, y, x, r_idx, slp);
 	}
 
 
@@ -2072,7 +2064,7 @@ bool place_monster_aux(int y, int x, int r_idx, bool slp, bool grp)
 			    rf_has(r_ptr->flags, RF_ESCORTS))
 			{
 				/* Place a group of monsters */
-				(void)place_monster_group(ny, nx, z, slp);
+				(void)place_monster_group(c, ny, nx, z, slp);
 			}
 		}
 	}
@@ -2088,9 +2080,11 @@ bool place_monster_aux(int y, int x, int r_idx, bool slp, bool grp)
  *
  * Attempt to find a monster appropriate to the given depth
  */
-bool place_monster(int y, int x, int depth, bool slp, bool grp)
+bool place_monster(struct cave *c, int y, int x, int depth, bool slp, bool grp)
 {
 	int r_idx;
+
+	assert(c);
 
 	/* Pick a monster */
 	r_idx = get_mon_num(depth);
@@ -2099,7 +2093,7 @@ bool place_monster(int y, int x, int depth, bool slp, bool grp)
 	if (!r_idx) return (FALSE);
 
 	/* Attempt to place the monster */
-	if (place_monster_aux(y, x, r_idx, slp, grp)) return (TRUE);
+	if (place_monster_aux(c, y, x, r_idx, slp, grp)) return (TRUE);
 
 	/* Oops */
 	return (FALSE);
@@ -2160,10 +2154,6 @@ bool place_monster(int y, int x, int depth, bool slp, bool grp)
  * XXX XXX XXX
  */
 
-
-
-
-
 /*
  * Attempt to allocate a random monster in the dungeon.
  *
@@ -2173,23 +2163,25 @@ bool place_monster(int y, int x, int depth, bool slp, bool grp)
  *
  * Use "depth" for the monster level
  */
-bool alloc_monster(int dis, bool slp, int depth)
+bool alloc_monster(struct cave *c, struct loc loc, int dis, bool slp, int depth)
 {
-	int py = p_ptr->py;
-	int px = p_ptr->px;
+	int py = loc.y;
+	int px = loc.x;
 
 	int y = 0, x = 0;
 	int	attempts_left = 10000;
+
+	assert(c);
 
 	/* Find a legal, distant, unoccupied, space */
 	while (--attempts_left)
 	{
 		/* Pick a location */
-		y = randint0(level_hgt);
-		x = randint0(level_wid);
+		y = randint0(c->height);
+		x = randint0(c->width);
 
 		/* Require "naked" floor grid */
-		if (!cave_naked_bold(y, x)) continue;
+		if (!cave_isempty(c, y, x)) continue;
 
 		/* Accept far away grids */
 		if (distance(y, x, py, px) > dis) break;
@@ -2199,14 +2191,14 @@ bool alloc_monster(int dis, bool slp, int depth)
 	{
 		if (OPT(cheat_xtra) || OPT(cheat_hear))
 		{
-			msg_print("Warning! Could not allocate a new monster.");
+			msg("Warning! Could not allocate a new monster.");
 		}
 
 		return FALSE;
 	}
 
 	/* Attempt to place the monster, allow groups */
-	if (place_monster(y, x, depth, slp, TRUE)) return (TRUE);
+	if (place_monster(c, y, x, depth, slp, TRUE)) return (TRUE);
 
 	/* Nope */
 	return (FALSE);
@@ -2402,7 +2394,7 @@ bool summon_specific(int y1, int x1, int lev, int type, int delay)
 		if (!cave_empty_bold(y, x)) continue;
 
 		/* Hack -- no summon on glyph of warding */
-		if (cave_feat[y][x] == FEAT_GLYPH) continue;
+		if (cave->feat[y][x] == FEAT_GLYPH) continue;
 
 		/* Okay */
 		break;
@@ -2438,12 +2430,12 @@ bool summon_specific(int y1, int x1, int lev, int type, int delay)
 	if (!r_idx) return (FALSE);
 
 	/* Attempt to place the monster (awake, allow groups) */
-	if (!place_monster_aux(y, x, r_idx, FALSE, TRUE)) return (FALSE);
+	if (!place_monster_aux(cave, y, x, r_idx, FALSE, TRUE)) return (FALSE);
 
 	/* If delay, try to let the player act before the summoned monsters. */
 	/* NOTE: should really be -100, but energy is currently 0-255. */
 	if (delay)
-		mon_list[cave_m_idx[y][x]].energy = 0;
+		mon_list[cave->m_idx[y][x]].energy = 0;
 
 	/* Success */
 	return (TRUE);
@@ -2478,7 +2470,7 @@ bool multiply_monster(int m_idx)
 		if (!cave_empty_bold(y, x)) continue;
 
 		/* Create a new monster (awake, no groups) */
-		result = place_monster_aux(y, x, m_ptr->r_idx, FALSE, FALSE);
+		result = place_monster_aux(cave, y, x, m_ptr->r_idx, FALSE, FALSE);
 
 		/* Done */
 		break;
@@ -2514,7 +2506,7 @@ void message_pain(int m_idx, int dam)
 	/* Notice non-damage */
 	if (dam == 0)
 	{
-		msg_format("%^s is unharmed.", m_name);
+		msg("%^s is unharmed.", m_name);
 		return;
 	}
 
@@ -2529,76 +2521,76 @@ void message_pain(int m_idx, int dam)
 	if (strchr("jmvQ", r_ptr->d_char))
 	{
 		if (percentage > 95)
-			msg_format("%^s barely notices.", m_name);
+			msg("%^s barely notices.", m_name);
 		else if (percentage > 75)
-			msg_format("%^s flinches.", m_name);
+			msg("%^s flinches.", m_name);
 		else if (percentage > 50)
-			msg_format("%^s squelches.", m_name);
+			msg("%^s squelches.", m_name);
 		else if (percentage > 35)
-			msg_format("%^s quivers in pain.", m_name);
+			msg("%^s quivers in pain.", m_name);
 		else if (percentage > 20)
-			msg_format("%^s writhes about.", m_name);
+			msg("%^s writhes about.", m_name);
 		else if (percentage > 10)
-			msg_format("%^s writhes in agony.", m_name);
+			msg("%^s writhes in agony.", m_name);
 		else
-			msg_format("%^s jerks limply.", m_name);
+			msg("%^s jerks limply.", m_name);
 	}
 
 	/* Dogs and Hounds */
 	else if (strchr("CZ", r_ptr->d_char))
 	{
 		if (percentage > 95)
-			msg_format("%^s shrugs off the attack.", m_name);
+			msg("%^s shrugs off the attack.", m_name);
 		else if (percentage > 75)
-			msg_format("%^s snarls with pain.", m_name);
+			msg("%^s snarls with pain.", m_name);
 		else if (percentage > 50)
-			msg_format("%^s yelps in pain.", m_name);
+			msg("%^s yelps in pain.", m_name);
 		else if (percentage > 35)
-			msg_format("%^s howls in pain.", m_name);
+			msg("%^s howls in pain.", m_name);
 		else if (percentage > 20)
-			msg_format("%^s howls in agony.", m_name);
+			msg("%^s howls in agony.", m_name);
 		else if (percentage > 10)
-			msg_format("%^s writhes in agony.", m_name);
+			msg("%^s writhes in agony.", m_name);
 		else
-			msg_format("%^s yelps feebly.", m_name);
+			msg("%^s yelps feebly.", m_name);
 	}
 
 	/* One type of monsters (ignore,squeal,shriek) */
 	else if (strchr("FIKMRSXabclqrst", r_ptr->d_char))
 	{
 		if (percentage > 95)
-			msg_format("%^s ignores the attack.", m_name);
+			msg("%^s ignores the attack.", m_name);
 		else if (percentage > 75)
-			msg_format("%^s grunts with pain.", m_name);
+			msg("%^s grunts with pain.", m_name);
 		else if (percentage > 50)
-			msg_format("%^s squeals in pain.", m_name);
+			msg("%^s squeals in pain.", m_name);
 		else if (percentage > 35)
-			msg_format("%^s shrieks in pain.", m_name);
+			msg("%^s shrieks in pain.", m_name);
 		else if (percentage > 20)
-			msg_format("%^s shrieks in agony.", m_name);
+			msg("%^s shrieks in agony.", m_name);
 		else if (percentage > 10)
-			msg_format("%^s writhes in agony.", m_name);
+			msg("%^s writhes in agony.", m_name);
 		else
-			msg_format("%^s cries out feebly.", m_name);
+			msg("%^s cries out feebly.", m_name);
 	}
 
 	/* Another type of monsters (shrug,cry,scream) */
 	else
 	{
 		if (percentage > 95)
-			msg_format("%^s shrugs off the attack.", m_name);
+			msg("%^s shrugs off the attack.", m_name);
 		else if (percentage > 75)
-			msg_format("%^s grunts with pain.", m_name);
+			msg("%^s grunts with pain.", m_name);
 		else if (percentage > 50)
-			msg_format("%^s cries out in pain.", m_name);
+			msg("%^s cries out in pain.", m_name);
 		else if (percentage > 35)
-			msg_format("%^s screams in pain.", m_name);
+			msg("%^s screams in pain.", m_name);
 		else if (percentage > 20)
-			msg_format("%^s screams in agony.", m_name);
+			msg("%^s screams in agony.", m_name);
 		else if (percentage > 10)
-			msg_format("%^s writhes in agony.", m_name);
+			msg("%^s writhes in agony.", m_name);
 		else
-			msg_format("%^s cries out feebly.", m_name);
+			msg("%^s cries out feebly.", m_name);
 	}
 }
 
@@ -2664,7 +2656,7 @@ void update_smart_learn(int m_idx, int what)
 		wieldeds_notice_flag(attack_table[what].flag);
 
 	/* Not allowed to learn */
-	if (!OPT(adult_ai_learn)) return;
+	if (!OPT(birth_ai_learn)) return;
 
 	/* Too stupid to learn anything */
 	if (rf_has(r_ptr->flags, RF_STUPID)) return;
@@ -2845,10 +2837,10 @@ static void build_quest_stairs(int y, int x)
 	delete_object(y, x);
 
 	/* Explain the staircase */
-	msg_print("A magical staircase appears...");
+	msg("A magical staircase appears...");
 
 	/* Create stairs down */
-	cave_set_feat(y, x, FEAT_MORE);
+	cave_set_feat(cave, y, x, FEAT_MORE);
 
 	/* Update the visuals */
 	p_ptr->update |= (PU_UPDATE_VIEW | PU_MONSTERS);
@@ -2932,7 +2924,7 @@ void monster_death(int m_idx)
 		delete_object_idx(this_o_idx);
 
 		/* Drop it */
-		drop_near(i_ptr, 0, y, x, TRUE);
+		drop_near(cave, i_ptr, 0, y, x, TRUE);
 	}
 
 	/* Forget objects */
@@ -2955,7 +2947,7 @@ void monster_death(int m_idx)
 		i_ptr->origin_xtra = m_ptr->r_idx;
 
 		/* Drop it in the dungeon */
-		drop_near(i_ptr, 0, y, x, TRUE);
+		drop_near(cave, i_ptr, 0, y, x, TRUE);
 
 
 		/* Get local object */
@@ -2971,7 +2963,7 @@ void monster_death(int m_idx)
 		i_ptr->origin_xtra = m_ptr->r_idx;
 
 		/* Drop it in the dungeon */
-		drop_near(i_ptr, 0, y, x, TRUE);
+		drop_near(cave, i_ptr, 0, y, x, TRUE);
 	}
 
 
@@ -3010,7 +3002,7 @@ void monster_death(int m_idx)
 		else
 		{
 			/* Make an object */
-			if (!make_object(i_ptr, level, good, great)) continue;
+			if (!make_object(cave, i_ptr, level, good, great)) continue;
 			dump_item++;
 		}
 
@@ -3020,7 +3012,7 @@ void monster_death(int m_idx)
 		i_ptr->origin_xtra = m_ptr->r_idx;
 
 		/* Drop it in the dungeon */
-		drop_near(i_ptr, 0, y, x, TRUE);
+		drop_near(cave, i_ptr, 0, y, x, TRUE);
 	}
 
 	/* Take note of any dropped treasure */
@@ -3059,9 +3051,9 @@ void monster_death(int m_idx)
 		p_ptr->redraw |= (PR_TITLE);
 
 		/* Congratulations */
-		msg_print("*** CONGRATULATIONS ***");
-		msg_print("You have won the game!");
-		msg_print("You may retire (commit suicide) when you are ready.");
+		msg("*** CONGRATULATIONS ***");
+		msg("You have won the game!");
+		msg("You may retire (commit suicide) when you are ready.");
 	}
 }
 
@@ -3152,25 +3144,25 @@ bool mon_take_hit(int m_idx, int dam, bool *fear, cptr note)
 		/* Death by Missile/Spell attack */
 		if (note)
 		{
-			message_format(soundfx, m_ptr->r_idx, "%^s%s", m_name, note);
+			msgt(soundfx, "%^s%s", m_name, note);
 		}
 
 		/* Death by physical attack -- invisible monster */
 		else if (!m_ptr->ml)
 		{
-			message_format(soundfx, m_ptr->r_idx, "You have killed %s.", m_name);
+			msgt(soundfx, "You have killed %s.", m_name);
 		}
 
 		/* Death by Physical attack -- non-living monster */
 		else if (monster_is_unusual(r_ptr))
 		{
-			message_format(soundfx, m_ptr->r_idx, "You have destroyed %s.", m_name);
+			msgt(soundfx, "You have destroyed %s.", m_name);
 		}
 
 		/* Death by Physical attack -- living monster */
 		else
 		{
-			message_format(soundfx, m_ptr->r_idx, "You have slain %s.", m_name);
+			msgt(soundfx, "You have slain %s.", m_name);
 		}
 
 		/* Player level */

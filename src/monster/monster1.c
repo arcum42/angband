@@ -144,7 +144,7 @@ void get_attack_colors(int melee_colors[RBE_MAX], int spell_colors[RSF_MAX])
 		known = object_is_known(o_ptr);
 
 		/* Drain charges - requires a charged item */
-		if (i < INVEN_PACK && (!known || o_ptr->pval > 0) &&
+		if (i < INVEN_PACK && (!known || o_ptr->pval[DEFAULT_PVAL] > 0) &&
 				(o_ptr->tval == TV_STAFF || o_ptr->tval == TV_WAND))
 			melee_colors[RBE_UN_POWER] = TERM_L_RED;
 
@@ -623,12 +623,6 @@ static void describe_monster_spells(int r_idx, const monster_lore *l_ptr, const 
 		vp[vn] = "darkness";
 		vc[vn] = colors[RSF_BR_DARK];
 		vd[vn++] = MIN(known_hp / BR_DARK_DIVISOR, BR_DARK_MAX);
-	}
-	if (rsf_has(l_ptr->spell_flags, RSF_BR_CONF))
-	{
-		vp[vn] = "confusion";
-		vc[vn] = colors[RSF_BR_CONF];
-		vd[vn++] = MIN(known_hp / BR_CONF_DIVISOR, BR_CONF_MAX);
 	}
 	if (rsf_has(l_ptr->spell_flags, RSF_BR_SOUN))
 	{
@@ -1361,7 +1355,7 @@ static void describe_monster_abilities(int r_idx, const monster_lore *l_ptr)
 
 	/* Describe special things */
 	if (rf_has(f, RF_MULTIPLY))
-		text_out("%^s breeds explosively.  ", wd_he[msex]);
+		text_out_c(TERM_ORANGE, "%^s breeds explosively.  ", wd_he[msex]);
 	if (rf_has(f, RF_REGENERATE))
 		text_out("%^s regenerates quickly.  ", wd_he[msex]);
 	if (rf_has(f, RF_HAS_LITE))
@@ -1626,12 +1620,11 @@ static void describe_monster_toughness(int r_idx, const monster_lore *l_ptr)
 			((p_ptr->state.to_h +
 			p_ptr->inventory[INVEN_WIELD].to_h) * BTH_PLUS_ADJ));
 
-		chance2 = 100 * (chance - (3 * r_ptr->ac / 4)) / chance;
+		/* Avoid division by zero errors */
+		if (chance < 1)
+			chance = 1;
 
-		if (chance2 > 95)
-			chance2 = 95;
-		if (chance2 < 5)
-			chance2 = 5;
+		chance2 = 90 * (chance - (3 * r_ptr->ac / 4)) / chance + 5;
 
 		text_out("You have a");
 		if ((chance2 == 8) || ((chance2 / 10) == 8))
@@ -1788,8 +1781,10 @@ static void describe_monster_movement(int r_idx, const monster_lore *l_ptr)
 	}
 
 	/* The code above includes "attack speed" */
-	if (rf_has(f, RF_NEVER_MOVE))
-		text_out(", but does not deign to chase intruders");
+	if (rf_has(f, RF_NEVER_MOVE)) {
+		text_out(", but ");
+		text_out_c(TERM_L_GREEN, "does not deign to chase intruders");
+	}
 
 	/* End this sentence */
 	text_out(".  ");
@@ -1966,14 +1961,19 @@ void roff_top(int r_idx)
 	{
 		Term_addstr(-1, TERM_WHITE, "The ");
 	}
+	else if (OPT(purple_uniques))
+	{
+		a1 = TERM_L_VIOLET;
+		a2 = TERM_L_VIOLET;
+	}
 
 	/* Dump the name */
 	Term_addstr(-1, TERM_WHITE, r_ptr->name);
 
 	if ((tile_width == 1) && (tile_height == 1))
 	{
-	        /* Append the "standard" attr/char info */
-	        Term_addstr(-1, TERM_WHITE, " ('");
+		/* Append the "standard" attr/char info */
+		Term_addstr(-1, TERM_WHITE, " ('");
 		Term_addch(a1, c1);
 		Term_addstr(-1, TERM_WHITE, "')");
 		

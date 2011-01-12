@@ -651,15 +651,6 @@ void flush(void)
 
 
 /*
- * Flush all pending input if the OPT(flush_failure) option is set.
- */
-void flush_fail(void)
-{
-	if (OPT(flush_failure)) flush();
-}
-
-
-/*
  * Local variable -- we are inside a "macro action"
  *
  * Do not match any macros until "ascii 30" is found.
@@ -1022,7 +1013,7 @@ ui_event_data inkey_ex(void)
 	(void)Term_get_cursor(&cursor_state);
 
 	/* Show the cursor if waiting, except sometimes in "command" mode */
-	if (!inkey_scan && (!inkey_flag || OPT(highlight_player) || character_icky))
+	if (!inkey_scan && (!inkey_flag || character_icky))
 	{
 		/* Show the cursor */
 		(void)Term_set_cursor(TRUE);
@@ -1271,9 +1262,6 @@ void bell(cptr reason)
 		redraw_stuff();
 	}
 
-	/* Make a bell noise (if allowed) */
-	if (OPT(ring_bell)) Term_xtra(TERM_XTRA_NOISE, 0);
-
 	/* Flush the input (later!) */
 	flush();
 }
@@ -1304,18 +1292,7 @@ static void msg_flush(int x)
 	Term_putstr(x, 0, -1, a, "-more-");
 
 	if (!OPT(auto_more))
-	{
-		/* Get an acceptable keypress */
-		while (1)
-		{
-			char ch;
-			ch = inkey();
-			if (OPT(quick_messages)) break;
-			if ((ch == ESCAPE) || (ch == ' ')) break;
-			if ((ch == '\n') || (ch == '\r')) break;
-			bell("Illegal response to a 'more' prompt!");
-		}
-	}
+		anykey();
 
 	/* Clear the line */
 	Term_erase(0, 0, 255);
@@ -1342,12 +1319,12 @@ static int message_column = 0;
  * "pending" messages still on the screen, instead of using "msg_flush()".
  * This should only be done when the user is known to have read the message.
  *
- * We must be very careful about using the "msg_print()" functions without
- * explicitly calling the special "msg_print(NULL)" function, since this may
+ * We must be very careful about using the "msg("%s", )" functions without
+ * explicitly calling the special "msg("%s", NULL)" function, since this may
  * result in the loss of information if the screen is cleared, or if anything
  * is displayed on the top line.
  *
- * Hack -- Note that "msg_print(NULL)" will clear the top line even if no
+ * Hack -- Note that "msg("%s", NULL)" will clear the top line even if no
  * messages are pending.
  */
 static void msg_print_aux(u16b type, cptr msg)
@@ -1357,7 +1334,6 @@ static void msg_print_aux(u16b type, cptr msg)
 	char buf[1024];
 	byte color;
 	int w, h;
-
 
 	/* Obtain the size */
 	(void)Term_get_size(&w, &h);
@@ -1406,21 +1382,18 @@ static void msg_print_aux(u16b type, cptr msg)
 	color = message_type_color(type);
 
 	/* Split message */
-	while (n > (w - 8))
+	while (n > w - 1)
 	{
 		char oops;
 
 		int check, split;
 
 		/* Default split */
-		split = (w - 8);
+		split = w - 8;
 
-		/* Find the "best" split point */
-		for (check = (w / 2); check < (w - 8); check++)
-		{
-			/* Found a valid split point */
+		/* Find the rightmost split point */
+		for (check = (w / 2); check < w - 8; check++)
 			if (t[check] == ' ') split = check;
-		}
 
 		/* Save the split character */
 		oops = t[split];
@@ -1457,20 +1430,10 @@ static void msg_print_aux(u16b type, cptr msg)
 	event_signal(EVENT_MESSAGE);
 }
 
-
 /*
- * Print a message in the default color (white)
+ * Display a formatted message, using "vstrnfmt()" and "msg("%s", )".
  */
-void msg_print(cptr msg)
-{
-	msg_print_aux(MSG_GENERIC, msg);
-}
-
-
-/*
- * Display a formatted message, using "vstrnfmt()" and "msg_print()".
- */
-void msg_format(cptr fmt, ...)
+void msg(const char *fmt, ...)
 {
 	va_list vp;
 
@@ -1489,48 +1452,16 @@ void msg_format(cptr fmt, ...)
 	msg_print_aux(MSG_GENERIC, buf);
 }
 
-
-/*
- * Display a message and play the associated sound.
- *
- * The "extra" parameter is currently unused.
- */
-void message(u16b message_type, s16b extra, cptr message)
-{
-	/* Unused parameter */
-	(void)extra;
-
-	sound(message_type);
-
-	msg_print_aux(message_type, message);
-}
-
-
-
-/*
- * Display a formatted message and play the associated sound.
- *
- * The "extra" parameter is currently unused.
- */
-void message_format(u16b message_type, s16b extra, cptr fmt, ...)
+void msgt(unsigned int type, const char *fmt, ...)
 {
 	va_list vp;
-
 	char buf[1024];
-
-	/* Begin the Varargs Stuff */
 	va_start(vp, fmt);
-
-	/* Format the args, save the length */
-	(void)vstrnfmt(buf, sizeof(buf), fmt, vp);
-
-	/* End the Varargs Stuff */
+	vstrnfmt(buf, sizeof(buf), fmt, vp);
 	va_end(vp);
-
-	/* Display */
-	message(message_type, extra, buf);
+	sound(type);
+	msg_print_aux(type, buf);
 }
-
 
 /*
  * Print the queued messages.
@@ -2522,16 +2453,7 @@ bool get_check(cptr prompt)
   
 	/* Prompt for it */
 	prt(buf, 0, 0);
-
-	/* Get an acceptable answer */
-	while (TRUE)
-	{
-		ke = inkey_ex();
-		if (OPT(quick_messages)) break;
-		if (ke.key == ESCAPE) break;
-		if (strchr("YyNn", ke.key)) break;
-		bell("Illegal response to a 'yes/no' question!");
-	}
+	ke = inkey_ex();
 
 	/* Kill the buttons */
 	button_kill('y');
@@ -2588,23 +2510,14 @@ char get_char(cptr prompt, const char *options, size_t len, char fallback)
 	prt(buf, 0, 0);
 
 	/* Get an acceptable answer */
-	while (TRUE)
-	{
-		key = inkey_ex().key;
+	key = inkey_ex().key;
 
-		/* Lowercase answer if necessary */
-		if (key >= 'A' && key <= 'Z') key += 32;
+	/* Lowercase answer if necessary */
+	if (key >= 'A' && key <= 'Z') key += 32;
 
-		/* See if key is in our options string */
-		if (strchr(options, key)) break;
-
-		/* If we want to escape, return the fallback */
-		if (key == ESCAPE || OPT(quick_messages)) 
-		{
-			key = fallback;
-			break;
-		}
-		bell("Illegal response!");
+	/* See if key is in our options string */
+	if (!strchr(options, key)) {
+		key = fallback;
 	}
 
 	/* Kill the buttons */

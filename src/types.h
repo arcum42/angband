@@ -42,7 +42,6 @@ typedef int (*button_kill_f)(unsigned char);
 typedef struct alloc_entry alloc_entry;
 typedef struct quest quest;
 typedef struct spell spell_type;
-typedef struct autoinscription autoinscription;
 typedef struct history_info history_info;
 typedef struct color_type color_type;
 
@@ -55,20 +54,11 @@ typedef struct color_type color_type;
  */
 typedef struct maxima
 {
-	u32b fake_text_size;  /**< Max size of all descriptions read in from lib/edit */
-	u32b fake_name_size;  /**< Max size of all names read in from lib/edit */
-
 	u16b f_max;       /**< Maximum number of terrain features */
 	u16b k_max;       /**< Maximum number of object base kinds */
 	u16b a_max;       /**< Maximum number of artifact kinds */
 	u16b e_max;       /**< Maximum number of ego-item kinds */
 	u16b r_max;       /**< Maximum number of monster races */
-	u16b v_max;       /**< Maximum number of vault kinds */
-	u16b p_max;       /**< Maximum number of player races */
-	u16b h_max;       /**< Maximum number of chained player history entries */
-	u16b b_max;       /**< Maximum number of shop owners per store kind */
-	u16b c_max;       /**< Maximum number of player classes */
-	u16b flavor_max;  /**< Maximum number of item flavour kinds */
 	u16b s_max;       /**< Maximum number of magic spells */
 
 	u16b o_max;       /**< Maximum number of objects on a given level */
@@ -112,8 +102,7 @@ typedef struct feature
 /*
  * Information about "vault generation"
  */
-typedef struct vault
-{
+typedef struct vault {
 	struct vault *next;
 	unsigned int vidx;
 	char *name;
@@ -197,15 +186,6 @@ typedef struct
 	const char *name;
 } grouper;
 
-
-/* Information for object auto-inscribe */
-struct autoinscription
-{
-	s16b kind_idx;
-	s16b inscription_idx;
-};
-
-
 struct history_info
 {
 	u16b type;			/* Kind of history item */
@@ -247,6 +227,15 @@ struct color_type
 	char index_char;            /* Character index:  'r' = red, etc. */
 	char name[32];              /* Color name */
 	byte color_translate[MAX_ATTR];       /* Index for various in-game translations */
+};
+
+/*
+ * A hint.
+ */
+struct hint
+{
+        char *hint;
+        struct hint *next;
 };
 
 

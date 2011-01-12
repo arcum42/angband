@@ -329,6 +329,7 @@ gboolean quit_gtk(GtkWidget *widget, GdkEvent *event, gpointer user_data)
 
 static void hook_quit(cptr str)
 {
+	printf("%s", str);
 	exit(0);
 }
 

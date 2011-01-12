@@ -20,6 +20,7 @@
 #include "cmds.h"
 #include "files.h"
 #include "history.h"
+#include "savefile.h"
 #include "ui-menu.h"
 #include "wizard.h"
 
@@ -200,9 +201,9 @@ static void death_file(const char *title, int row)
 
 		/* Check result */
 		if (err)
-			msg_print("Character dump failed!");
+			msg("Character dump failed!");
 		else
-			msg_print("Character dump successful.");
+			msg("Character dump successful.");
 
 		/* Flush messages */
 		message_flush();
@@ -406,9 +407,9 @@ void death_screen(void)
 	}
 
 	/* Save dead player */
-	if (!old_save())
+	if (!savefile_save(savefile))
 	{
-		msg_print("death save failed!");
+		msg("death save failed!");
 		message_flush();
 	}
 

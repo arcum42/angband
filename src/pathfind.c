@@ -41,7 +41,7 @@ static int ox, oy, ex, ey;
 static bool is_valid_pf(int y, int x)
 {
 	/* Unvisited means allowed */
-	if (!(cave_info[y][x] & (CAVE_MARK))) return (TRUE);
+	if (!(cave->info[y][x] & (CAVE_MARK))) return (TRUE);
 
 	/* Require open space */
 	return (cave_floor_bold(y, x));
@@ -82,7 +82,7 @@ bool findpath(int y, int x)
 
 	if ((x >= ox) && (x < ex) && (y >= oy) && (y < ey))
 	{
-		if ((cave_m_idx[y][x] > 0) && (mon_list[cave_m_idx[y][x]].ml))
+		if ((cave->m_idx[y][x] > 0) && (mon_list[cave->m_idx[y][x]].ml))
 		{
 			terrain[y - oy][x - ox] = MAX_PF_LENGTH;
 		}
@@ -568,10 +568,10 @@ static int see_wall(int dir, int y, int x)
 	if (!in_bounds(y, x)) return (FALSE);
 
 	/* Non-wall grids are not known walls */
-	if (cave_feat[y][x] < FEAT_SECRET) return (FALSE);
+	if (cave->feat[y][x] < FEAT_SECRET) return (FALSE);
 
 	/* Unknown walls are not known walls */
-	if (!(cave_info[y][x] & (CAVE_MARK))) return (FALSE);
+	if (!(cave->info[y][x] & (CAVE_MARK))) return (FALSE);
 
 	/* Default */
 	return (TRUE);
@@ -602,6 +602,8 @@ static void run_init(int dir)
 	bool deepleft, deepright;
 	bool shortleft, shortright;
 
+	/* Mark that we're starting a run */
+	p_ptr->running_firststep = TRUE;
 
 	/* Save the direction */
 	p_ptr->run_cur_dir = dir;
@@ -736,9 +738,9 @@ static bool run_test(void)
 
 
 		/* Visible monsters abort running */
-		if (cave_m_idx[row][col] > 0)
+		if (cave->m_idx[row][col] > 0)
 		{
-			monster_type *m_ptr = &mon_list[cave_m_idx[row][col]];
+			monster_type *m_ptr = &mon_list[cave->m_idx[row][col]];
 
 			/* Visible monster */
 			if (m_ptr->ml) return (TRUE);
@@ -748,7 +750,7 @@ static bool run_test(void)
 		for (o_ptr = get_first_object(row, col); o_ptr; o_ptr = get_next_object(o_ptr))
 		{
 			/* Visible object */
-			if (o_ptr->marked && !squelch_hide_item(o_ptr)) return (TRUE);
+			if (o_ptr->marked && !squelch_item_ok(o_ptr)) return (TRUE);
 		}
 
 
@@ -756,12 +758,12 @@ static bool run_test(void)
 		inv = TRUE;
 
 		/* Check memorized grids */
-		if (cave_info[row][col] & (CAVE_MARK))
+		if (cave->info[row][col] & (CAVE_MARK))
 		{
 			bool notice = TRUE;
 
 			/* Examine the terrain */
-			switch (cave_feat[row][col])
+			switch (cave->feat[row][col])
 			{
 				/* Floors */
 				case FEAT_FLOOR:
@@ -885,9 +887,9 @@ static bool run_test(void)
 		if (row < 0 || col < 0) continue;
 
 		/* Visible monsters abort running */
-		if (cave_m_idx[row][col] > 0)
+		if (cave->m_idx[row][col] > 0)
 		{
-			monster_type *m_ptr = &mon_list[cave_m_idx[row][col]];
+			monster_type *m_ptr = &mon_list[cave->m_idx[row][col]];
 			
 			/* Visible monster */
 			if (m_ptr->ml) return (TRUE);			
@@ -907,8 +909,8 @@ static bool run_test(void)
 
 			/* Unknown grid or non-wall */
 			/* Was: cave_floor_bold(row, col) */
-			if (!(cave_info[row][col] & (CAVE_MARK)) ||
-			    (cave_feat[row][col] < FEAT_SECRET))
+			if (!(cave->info[row][col] & (CAVE_MARK)) ||
+			    (cave->feat[row][col] < FEAT_SECRET))
 			{
 				/* Looking to break right */
 				if (p_ptr->run_break_right)
@@ -938,8 +940,8 @@ static bool run_test(void)
 
 			/* Unknown grid or non-wall */
 			/* Was: cave_floor_bold(row, col) */
-			if (!(cave_info[row][col] & (CAVE_MARK)) ||
-			    (cave_feat[row][col] < FEAT_SECRET))
+			if (!(cave->info[row][col] & (CAVE_MARK)) ||
+			    (cave->feat[row][col] < FEAT_SECRET))
 			{
 				/* Looking to break left */
 				if (p_ptr->run_break_left)
@@ -1061,7 +1063,7 @@ void run_step(int dir)
 				x = p_ptr->px + ddx[pf_result[pf_result_index] - '0'];
 
 				/* Known wall */
-				if ((cave_info[y][x] & (CAVE_MARK)) && !cave_floor_bold(y, x))
+				if ((cave->info[y][x] & (CAVE_MARK)) && !cave_floor_bold(y, x))
 				{
 					disturb(0,0);
 					p_ptr->running_withpathfind = FALSE;
@@ -1086,7 +1088,7 @@ void run_step(int dir)
 				x = p_ptr->px + ddx[pf_result[pf_result_index] - '0'];
 
 				/* Known wall */
-				if ((cave_info[y][x] & (CAVE_MARK)) && !cave_floor_bold(y, x))
+				if ((cave->info[y][x] & (CAVE_MARK)) && !cave_floor_bold(y, x))
 				{
 					disturb(0,0);
 					p_ptr->running_withpathfind = FALSE;
@@ -1098,7 +1100,7 @@ void run_step(int dir)
 				x = x + ddx[pf_result[pf_result_index-1] - '0'];
 
 				/* Known wall */
-				if ((cave_info[y][x] & (CAVE_MARK)) && !cave_floor_bold(y, x))
+				if ((cave->info[y][x] & (CAVE_MARK)) && !cave_floor_bold(y, x))
 				{
 					p_ptr->running_withpathfind = FALSE;
 
@@ -1118,6 +1120,6 @@ void run_step(int dir)
 	p_ptr->energy_use = 100;
 
 	/* Move the player */
-	move_player(p_ptr->run_cur_dir);
+	move_player(p_ptr->run_cur_dir, TRUE);
 }
 
