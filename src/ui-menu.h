@@ -93,7 +93,7 @@ typedef struct
 
 	/* Handle 'positive' events (selections or cmd_keys) */
 	/* XXX split out into a select handler and a cmd_key handler */
-	bool (*row_handler)(menu_type *menu, const ui_event_data *event, int oid);
+	bool (*row_handler)(menu_type *menu, const ui_event *event, int oid);
 
 	/* Called when the screen resizes */
 	void (*resize)(menu_type *m);
@@ -126,7 +126,7 @@ typedef struct
 	char (*get_tag)(menu_type *menu, int pos);
 
 	/* Process a direction */
-	ui_event_data (*process_dir)(menu_type *menu, int dir);
+	ui_event (*process_dir)(menu_type *menu, int dir);
 } menu_skin;
 
 
@@ -268,8 +268,10 @@ bool menu_layout(menu_type *menu, const region *loc);
 
 /**
  * Display a menu.
+ * If reset_screen is true, it will reset the screen to the previously saved
+ * state before displaying.
  */
-void menu_refresh(menu_type *menu);
+void menu_refresh(menu_type *menu, bool reset_screen);
 
 
 /**
@@ -292,8 +294,12 @@ void menu_refresh(menu_type *menu);
  *   EVT_RESIZE: resize events
  * 
  * XXX remove 'notify'
+ *
+ * If popup is TRUE, the screen background is saved before starting the menu,
+ * and restored before each redraw. This allows variably-sized information
+ * at the bottom of the menu.
  */
-ui_event_data menu_select(menu_type *menu, int notify);
+ui_event menu_select(menu_type *menu, int notify, bool popup);
 
 /**
  * Set the menu cursor to the next valid row.
@@ -302,8 +308,8 @@ void menu_ensure_cursor_valid(menu_type *m);
 
 
 /* Interal menu stuff that cmd-know needs because it's quite horrible */
-bool menu_handle_mouse(menu_type *menu, const ui_event_data *in, ui_event_data *out);
-bool menu_handle_keypress(menu_type *menu, const ui_event_data *in, ui_event_data *out);
+bool menu_handle_mouse(menu_type *menu, const ui_event *in, ui_event *out);
+bool menu_handle_keypress(menu_type *menu, const ui_event *in, ui_event *out);
 
 
 /*** Dynamic menu handling ***/

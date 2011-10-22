@@ -45,7 +45,7 @@
 
 #ifdef WINDOWS
 # define my_mkdir(path, perms) mkdir(path)
-#elif HAVE_MKDIR || MACH_O_CARBON
+#elif defined(HAVE_MKDIR) || defined(MACH_O_CARBON)
 # define my_mkdir(path, perms) mkdir(path, perms)
 #else
 # define my_mkdir(path, perms) FALSE
@@ -107,7 +107,7 @@ void safe_setuid_grab(void)
 /*
  * Apply special system-specific processing before dealing with a filename.
  */
-static void path_parse(char *buf, size_t max, cptr file)
+static void path_parse(char *buf, size_t max, const char *file)
 {
 	/* Accept the filename */
 	my_strcpy(buf, file, max);
@@ -150,16 +150,16 @@ static void path_process(char *buf, size_t len, size_t *cur_len, const char *pat
 #else /* MACH_O_CARBON */
 
 		{
-		/* On Macs getlogin() can incorrectly return root, so get the username via system frameworks */
-		CFStringRef cfusername = CSCopyUserName(TRUE);
-		CFIndex cfbufferlength = CFStringGetMaximumSizeForEncoding(CFStringGetLength(cfusername), kCFStringEncodingUTF8) + 1;
-		char *macusername = mem_alloc(cfbufferlength);
-		CFStringGetCString(cfusername, macusername, cfbufferlength, kCFStringEncodingUTF8);
-		CFRelease(cfusername);
+			/* On Macs getlogin() can incorrectly return root, so get the username via system frameworks */
+			CFStringRef cfusername = CSCopyUserName(TRUE);
+			CFIndex cfbufferlength = CFStringGetMaximumSizeForEncoding(CFStringGetLength(cfusername), kCFStringEncodingUTF8) + 1;
+			char *macusername = mem_alloc(cfbufferlength);
+			CFStringGetCString(cfusername, macusername, cfbufferlength, kCFStringEncodingUTF8);
+			CFRelease(cfusername);
 
-		/* Look up the user */
-		pw = getpwnam(macusername);
-		mem_free(macusername);
+			/* Look up the user */
+			pw = getpwnam(macusername);
+			mem_free(macusername);
 		}
 #endif /* !MACH_O_CARBON */
 
@@ -237,6 +237,20 @@ size_t path_build(char *buf, size_t len, const char *base, const char *leaf)
 # define HAVE_READ
 #endif
 
+/* Some defines for compatibility between various build platforms */
+#ifndef S_IRUSR
+#define S_IRUSR S_IREAD
+#endif
+
+#ifndef S_IWUSR
+#define S_IWUSR S_IWRITE
+#endif
+
+/* if the flag O_BINARY is not defined, it is not needed , but we still
+ * need it defined so it will compile */
+#ifndef O_BINARY
+#define O_BINARY 0
+#endif
 
 /* Private structure to hold file pointers and useful info. */
 struct ang_file
@@ -253,7 +267,7 @@ struct ang_file
 /*
  * Delete file 'fname'.
  */
-bool file_delete(const char *fname) 
+bool file_delete(const char *fname)
 {
 	char buf[1024];
 
@@ -264,7 +278,7 @@ bool file_delete(const char *fname)
 }
 
 /*
- * Delete file 'fname' to 'newname'.
+ * Move file 'fname' to 'newname'.
  */
 bool file_move(const char *fname, const char *newname)
 {
@@ -362,12 +376,29 @@ ang_file *file_open(const char *fname, file_mode mode, file_type ftype)
 	/* Get the system-specific path */
 	path_parse(buf, sizeof(buf), fname);
 
-	switch (mode)
-	{
-		case MODE_WRITE:  f->fh = fopen(buf, "wb"); break;
-		case MODE_READ:   f->fh = fopen(buf, "rb"); break;
+	switch (mode) {
+		case MODE_WRITE: { 
+			if (ftype == FTYPE_SAVE) {
+				/* open only if the file does not exist */
+				int fd;
+				fd = open(buf, O_CREAT | O_EXCL | O_WRONLY | O_BINARY, S_IRUSR | S_IWUSR);
+				if (fd < 0) {
+					/* there was some error */
+					f->fh = NULL;
+				} else {
+					f->fh = fdopen(fd, "wb");
+				}
+			} else {
+				f->fh = fopen(buf, "wb");
+			}
+			break;
+		}
+
+		case MODE_READ: f->fh = fopen(buf, "rb"); break;
+
 		case MODE_APPEND: f->fh = fopen(buf, "a+"); break;
-		default:          f->fh = fopen(buf, "__");
+
+		default: f->fh = fopen(buf, "__");
 	}
 
 	if (f->fh == NULL)
@@ -506,8 +537,6 @@ bool file_getl(ang_file *f, char *buf, size_t len)
 	byte b;
 	size_t i = 0;
 
-	bool check_encodes = FALSE;
-
 	/* Leave a byte for the terminating 0 */
 	size_t max_len = len - 1;
 
@@ -556,25 +585,8 @@ bool file_getl(ang_file *f, char *buf, size_t len)
 			continue;
 		}
 
-		/* Ignore non-printables */
-		else if (my_isprint((unsigned char)c))
-  		{
-			buf[i++] = c;
-
-			/* Notice possible encode */
- 			if (c == '[') check_encodes = TRUE;
-
-			continue;
-		}
-		else
-		{
-			buf[i++] = '?';
-			continue;
-		}
+		buf[i++] = c;
 	}
-
-	/* Translate encodes if necessary */
- 	if (check_encodes) xstr_trans(buf, LATIN1);
 
 	buf[i] = '\0';
 	return TRUE;
@@ -590,25 +602,51 @@ bool file_put(ang_file *f, const char *buf)
 }
 
 /*
+ * The comp.lang.c FAQ recommends this pairing for varargs functions.
+ * See <http://c-faq.com/varargs/handoff.html>
+ */
+
+/**
  * Append a formatted line of text to the end of file 'f'.
+ *
+ * file_putf() is the ellipsis version. Most file output will call this
+ * version. It calls file_vputf() to do the real work. It returns TRUE
+ * if the write was successful and FALSE otherwise.
  */
 bool file_putf(ang_file *f, const char *fmt, ...)
 {
-	char buf[1024];
 	va_list vp;
+	bool status;
+
+	if (!f) return FALSE;
 
 	va_start(vp, fmt);
-	(void)vstrnfmt(buf, sizeof(buf), fmt, vp);
+	status = file_vputf(f, fmt, vp);
 	va_end(vp);
 
-	return file_put(f, buf);
+	return status;
 }
 
+/**
+ * Append a formatted line of text to the end of file 'f'.
+ *
+ * file_vputf() is the va_list version. It returns TRUE if the write was
+ * successful and FALSE otherwise.
+ */
+bool file_vputf(ang_file *f, const char *fmt, va_list vp)
+{
+	char buf[1024];
+
+	if (!f) return FALSE;
+
+	(void)vstrnfmt(buf, sizeof(buf), fmt, vp);
+	return file_put(f, buf);
+}
 
 /*
  * Format and translate a string, then print it out to file.
  */
-bool x_file_putf(ang_file *f, int encoding, const char *fmt, ...)
+bool x_file_putf(ang_file *f, const char *fmt, ...)
 {
 	va_list vp;
 
@@ -622,9 +660,6 @@ bool x_file_putf(ang_file *f, int encoding, const char *fmt, ...)
 
  	/* End the Varargs Stuff */
  	va_end(vp);
-
- 	/* Translate*/
- 	xstr_trans(buf, encoding);
 
  	return file_put(f, buf);
 }

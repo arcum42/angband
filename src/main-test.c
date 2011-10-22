@@ -1,10 +1,26 @@
-/** @file main-test.c
- *  @brief Pseudo-UI for end-to-end testing.
- *  @author Elly <elly+angband@leptoquark.net>
+/*
+ * File: main-test.c
+ * Purpose: Pseudo-UI for end-to-end testing.
+ *
+ * Copyright (c) 2011 Elly <elly+angband@leptoquark.net>
+ *
+ * This work is free software; you can redistribute it and/or modify it
+ * under the terms of either:
+ *
+ * a) the GNU General Public License as published by the Free Software
+ *    Foundation, version 2, or
+ *
+ * b) the "Angband licence":
+ *    This software may be copied and distributed for educational, research,
+ *    and not for profit purposes provided that this copyright and statement
+ *    are included in all such copies.  Other copyrights may also apply.
  */
 
 #include "angband.h"
 #include "birth.h"
+#include "buildid.h"
+
+#ifdef USE_TEST
 
 static int prompt = 0;
 static int verbose = 0;
@@ -98,15 +114,15 @@ static void c_player_birth(char *rest) {
 }
 
 static void c_player_class(char *rest) {
-	printf("player-class: %s\n", cp_ptr->name);
+	printf("player-class: %s\n", p_ptr->class->name);
 }
 
 static void c_player_race(char *rest) {
-	printf("player-race: %s\n", rp_ptr->name);
+	printf("player-race: %s\n", p_ptr->race->name);
 }
 
 static void c_player_sex(char *rest) {
-	printf("player-sex: %s\n", sp_ptr->title);
+	printf("player-sex: %s\n", p_ptr->sex->title);
 }
 
 typedef struct {
@@ -211,7 +227,7 @@ static errr term_xtra_alive(int v) {
 static errr term_xtra_event(int v) {
 	if (verbose) printf("term-xtra-event %d\n", v);
 	if (nextkey) {
-		Term_keypress(nextkey);
+		Term_keypress(nextkey, 0);
 		nextkey = 0;
 	}
 	return test_docmd();
@@ -266,8 +282,12 @@ static errr term_wipe_test(int x, int y, int n) {
 	return 0;
 }
 
-static errr term_text_test(int x, int y, int n, byte a, const char *s) {
-	if (verbose) printf("term-text %d %d %d %02x %s\n", x, y, n, a, s);
+static errr term_text_test(int x, int y, int n, byte a, const wchar_t *s) {
+	if (verbose) {
+		char str[256];
+		wcstombs(str, s, 256);
+		printf("term-text %d %d %d %02x %s\n", x, y, n, a, str);
+	}
 	return 0;
 }
 
@@ -308,3 +328,4 @@ errr init_test(int argc, char *argv[]) {
 	term_data_link(0);
 	return 0;
 }
+#endif

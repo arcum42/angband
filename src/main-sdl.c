@@ -17,6 +17,7 @@
  *    are included in all such copies.  Other copyrights may also apply.
  */
 #include "angband.h"
+#include "buildid.h"
 #include "cmds.h"
 #include "files.h"
 
@@ -129,13 +130,16 @@ static int full_h;
 /* Want fullscreen? */
 static bool fullscreen = FALSE;
 
+static int overdraw = 0;
+static int overdraw_max = 0;
+
 /* XXXXXXXXX */
 static char *ANGBAND_DIR_USER_SDL;
 
 /*
  * Used as 'system' font
  */
-static cptr DEFAULT_FONT_FILE = "6x10x.fon";
+static const char *DEFAULT_FONT_FILE = "6x10x.fon";
 
 #define MAX_FONTS 40
 char *FontList[MAX_FONTS];
@@ -161,6 +165,7 @@ struct sdl_Font
 	Uint8 something;			/* Padding */
 	
 	int *data;					/* The data */
+	TTF_Font *sdl_font;			/* The native font */
 };
 
 static sdl_Font SystemFont;
@@ -228,6 +233,14 @@ struct mouse_info
 
 #define WINDOW_DRAW (SDL_USEREVENT + 1)
 
+/*
+ * The basic angband text colours in an sdl friendly form
+ */
+static SDL_Color text_colours[MAX_COLORS];
+
+SDL_Color back_colour;		/* Background colour */
+Uint32 back_pixel_colour;
+
 typedef struct sdl_ButtonBank sdl_ButtonBank;
 typedef struct sdl_Button sdl_Button;
 typedef struct sdl_Window sdl_Window;
@@ -241,9 +254,9 @@ struct sdl_Button
 	button_press_func activate;	/* A function to call when pressed */
 	sdl_ButtonBank *owner;		/* Which bank is this in? */
 	char caption[50];			/* Text for this button */
-	Uint32 unsel_colour;		/* Button unselected colour */
-	Uint32 sel_colour;			/* Selected colour*/
-	Uint32 cap_colour;			/* Caption colour */
+	SDL_Color unsel_colour;		/* Button unselected colour */
+	SDL_Color sel_colour;		/* Selected colour*/
+	SDL_Color cap_colour;		/* Caption colour */
 	void *data;					/* Something */
 	int tag;					/* Something */
 	
@@ -313,22 +326,6 @@ static int Zorder[ANGBAND_TERM_MAX];
 static mouse_info mouse;
 
 /*
- * Hack -- define which keys should be ignored
- */
-static bool ignore_key[1024];
-
-/*
- * We ignore all keypresses involving only modifier keys
- */
-static int ignore_key_list[] =
-{
-	SDLK_NUMLOCK, SDLK_CAPSLOCK, SDLK_SCROLLOCK, SDLK_RSHIFT,
-	SDLK_LSHIFT, SDLK_RCTRL, SDLK_LCTRL, SDLK_RALT, SDLK_LALT,
-	SDLK_RMETA, SDLK_LMETA, SDLK_LSUPER, SDLK_RSUPER, SDLK_MODE,
-	SDLK_COMPOSE, 0
-};
-
-/*
  * The number pad consists of 10 keys, each with an SDL identifier
  */
 #define is_numpad(k) \
@@ -347,6 +344,9 @@ static int VisibleSelect;	/* Hide/unhide window button*/
 static int MoreSelect;		/* Other options button */
 static int QuitSelect;		/* Quit button */
 
+/* For saving the icon for the About Box */
+static SDL_Surface *mratt = NULL;
+
 /* Buttons on the 'More' panel */
 static int MoreOK;			/* Accept changes */
 static int MoreFullscreen;	/* Fullscreen toggle button */
@@ -360,54 +360,17 @@ static bool Sizingshow = FALSE;	/* Is the resize thingy displayed? */
 static SDL_Rect SizingRect;		/* Rect to describe the current resize window */
 
 #ifdef USE_GRAPHICS
-typedef struct GfxInfo GfxInfo;
-struct GfxInfo
-{
-	cptr name;				/* Name to show on button */
-	cptr gfxfile;			/* The file with tiles */
-	int width;				/* Width of a tile */
-	int height;				/* Height of a tile */
-	cptr pref;				/* Preference file to use */
-	int x;					/* Yuk - Pixel location of colour key */
-	int y;					/* ditto */
-	bool avail;				/* Are the appropriate files available? */
-};
+#include "grafmode.h"
 
 static SDL_Surface *GfxSurface = NULL;	/* A surface for the graphics */
-
-#define GfxModes 5
-static GfxInfo GfxDesc[GfxModes] =
-{
-	/* No gfx (GRAPHICS_NONE) */
-	{"None", NULL, -1, -1, NULL, 0, 0, TRUE},
-	/* 8x8 tiles (GRAPHICS_ORIGINAL) */
-	{"8x8", "8x8.png", 8, 8, "old", 0, 0, TRUE},
-	/* 16x16 tiles (GRAPHICS_ADAM_BOLT) */
-	{"16x16", "16x16.png", 16, 16, "new", 0, 65, TRUE},
-	/* XXX (GRAPHICS_DAVID_GERVAIS) */
-	{"32x32", "32x32.png", 32, 32, "david", 0, 0, TRUE},
-	{"8x16", "8x16.png", 16, 16, "nomad", 0, 0, TRUE},
-	
-	/* XXX (GRAPHICS_PSEUDO ???) */
-	/*{NULL, NULL, NULL, -1, -1},	*/						
-};
-
 
 static int MoreWidthPlus;	/* Increase tile width */
 static int MoreWidthMinus;	/* Decrease tile width */
 static int MoreHeightPlus;	/* Increase tile height */
 static int MoreHeightMinus;	/* Decrease tile height */
-static int GfxButtons[GfxModes];	/* Graphics mode buttons */
+static int *GfxButtons;	/* Graphics mode buttons */
 static int SelectedGfx;				/* Current selected gfx */
 #endif
-
-/*
- * The basic angband text colours in an sdl friendly form
- */
-static u32b text_colours[MAX_COLORS];
-
-u32b back_colour;		/* Background colour */
-
 
 /*
  * Fill in an SDL_Rect structure.
@@ -441,35 +404,36 @@ static bool point_in(SDL_Rect *rect, int x, int y)
  * Draw an outline box
  * Given the top, left, width & height
  */
-static void sdl_DrawBox(SDL_Surface *surface, SDL_Rect *rect, Uint32 colour, int width)
+static void sdl_DrawBox(SDL_Surface *surface, SDL_Rect *rect, SDL_Color colour, int width)
 {
 	SDL_Rect rc;
 	int left = rect->x;
 	int right = rect->x + rect->w - width;
 	int top = rect->y;
 	int bottom = rect->y + rect->h - width;
+	Uint32 pixel_colour = SDL_MapRGB(surface->format, colour.r, colour.g, colour.b);
 	
 	/* Top left -> Top Right */
 	RECT(left, top, rect->w, width, &rc);
-	SDL_FillRect(surface, &rc, colour);
+	SDL_FillRect(surface, &rc, pixel_colour);
 	
 	/* Bottom left -> Bottom Right */
 	RECT(left, bottom, rect->w, width, &rc);
-	SDL_FillRect(surface, &rc, colour);
+	SDL_FillRect(surface, &rc, pixel_colour);
 	
 	/* Top left -> Bottom left */
 	RECT(left, top, width, rect->h, &rc);
-	SDL_FillRect(surface, &rc, colour);
+	SDL_FillRect(surface, &rc, pixel_colour);
 	
 	/* Top right -> Bottom right */
 	RECT(right, top, width, rect->h, &rc);
-	SDL_FillRect(surface, &rc, colour);
+	SDL_FillRect(surface, &rc, pixel_colour);
 }
 
 /*
  * Get the width and height of a given font file
  */
-static errr sdl_CheckFont(cptr fontname, int *width, int *height)
+static errr sdl_CheckFont(const char *fontname, int *width, int *height)
 {
 	char buf[1024];
 	
@@ -502,8 +466,8 @@ static errr sdl_CheckFont(cptr fontname, int *width, int *height)
  */
 static void sdl_FontFree(sdl_Font *font)
 {
-	/* The only memory reserved is the data */
-	FREE(font->data);
+	/* Finished with the font */
+	TTF_CloseFont(font->sdl_font);
 }
 
 
@@ -511,24 +475,11 @@ static void sdl_FontFree(sdl_Font *font)
  * Create new font data with font fontname, optimizing the data
  * for the surface given
  */
-static errr sdl_FontCreate(sdl_Font *font, cptr fontname, SDL_Surface *surface)
+static errr sdl_FontCreate(sdl_Font *font, const char *fontname, SDL_Surface *surface)
 {
 	char buf[1024];
-	int i;
 	
 	TTF_Font *ttf_font;
-	
-	/* Our temporary glyph will be rendered in white */
-	SDL_Color white = { 255, 255, 255, 0 };
-	
-	int *temp_array;
-	
-	/* The first pixel data is stored immediately after the character indexes */
-	/* But we need an extra space to store the total pixel count */
-	int num_pixels = NUM_GLYPHS + 1;
-	
-	/* Free any old data */
-	if (font->data) sdl_FontFree(font);
 	
 	/* Build the path */
 	path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_FONT, fontname);
@@ -546,70 +497,10 @@ static errr sdl_FontCreate(sdl_Font *font, cptr fontname, SDL_Surface *surface)
 	my_strcpy(font->name, fontname, 30);
 	font->pitch = surface->pitch;
 	font->bpp = surface->format->BytesPerPixel;
-	
-	/* Make a very large temporary holding bin for pixel offset data  XXX */
-	temp_array = C_ZNEW(NUM_GLYPHS * 1000, int);
-	
-	/* Render and encode all the characters */
-	for (i = 0; i < NUM_GLYPHS; i++)
-	{
-		SDL_Surface *temp_glyph;
-		int x, y, v;
-		Uint8 *p;
-		
-		/* Render this glyph, in white, onto an 8-bit surface */
-		temp_glyph = TTF_RenderGlyph_Solid(ttf_font, i, white);
-		
-		/* Remember the current pixel array location */
-		temp_array[i] = num_pixels;
-		
-		/* If glyph does not exist, no pixels get plotted */
-		if (!temp_glyph)
-		{
-			fprintf(stderr, "char:%d : %s\n", i, TTF_GetError());
-			continue;
-		}
-		
-		/* Store this glyph into our temporary array */
-		for (x = 0; x < temp_glyph->w; x++)
-		{
-			for (y = 0; y < temp_glyph->h; y++)
-			{
-				/* Access this pixel.  "pitch" is the pixel width in bytes of an SDL surface */
-				p = (Uint8 *)temp_glyph->pixels + (y * temp_glyph->pitch) + (x * temp_glyph->format->BytesPerPixel);
-				
-				/* Ignore pixels without color data */
-				if (!*p) continue;
-				
-				/* Precalculate some of the math needed to access this pixel on screen */
-				v = (y * font->pitch) + (x * font->bpp);
-				
-				/* And store it */
-				temp_array[num_pixels++] = v;
-			}
-		}
-		
-		/* Free the temporary surface */
-		SDL_FreeSurface(temp_glyph);
-	}
-	
-	/* Calculate and store access position data for the final character */
-	temp_array[NUM_GLYPHS] = num_pixels;
-	
-	/* Make a pixel access array for this font */
-	font->data = C_ZNEW(num_pixels, int);
-	
-	/* Save the data gathered in our temporary array */
-	for (i = 0; i < num_pixels; i++) font->data[i] = temp_array[i];
-	
-	/* Free the temporary pixel data */
-	FREE(temp_array);
-	
-	/* Finished with the font */
-	TTF_CloseFont(ttf_font);
+	font->sdl_font = ttf_font;
 	
 	/* Success */
-	return (0);	
+	return (0);
 }
 
 
@@ -617,78 +508,34 @@ static errr sdl_FontCreate(sdl_Font *font, cptr fontname, SDL_Surface *surface)
 
 /*
  * Draw some text onto a surface
- * The surface is first checked to see if it is compatable with
+ * The surface is first checked to see if it is compatible with
  * this font, if it isn't the the font will be 're-precalculated'
  *
  * You can, I suppose, use one font on many surfaces, but it is
- * definately not recommended. One font per surface is good enough.
+ * definitely not recommended. One font per surface is good enough.
  */
-static errr sdl_FontDraw(sdl_Font *font, SDL_Surface *surface, Uint32 colour, int x, int y, int n , cptr s)
+static errr sdl_FontDraw(sdl_Font *font, SDL_Surface *surface, SDL_Color colour, int x, int y, int n , const char *s)
 {
 	Uint8 bpp = surface->format->BytesPerPixel;
 	Uint16 pitch = surface->pitch;
-	
-	int i, j;
-	
-	int start, end;
-	
-	Uint8 *pd0;
-	
-	int *data;
-	
+
+	SDL_Rect rc;
+	SDL_Surface *text;
+
 	if ((bpp != font->bpp) || (pitch != font->pitch))
 		sdl_FontCreate(font, font->name, surface);
 	
-	data = font->data;
 	/* Lock the window surface (if necessary) */
 	if (SDL_MUSTLOCK(surface))
 	{
 		if (SDL_LockSurface(surface) < 0) return (-1);
 	}
-	
-	/* Point to the left-top corner of the screen pixel data for this tile */
-	pd0 = (Uint8 *)surface->pixels + (y * pitch) + (x * bpp);
-	
-	/* Advance along the string.  Adjust pixel pointer one tile per character. */
-	for (i = 0; i < n; i++, pd0 += (font->width * bpp))
-	{
-		/* Translate the character */
-		byte c = *(s + i);
-		
-		/* Get the first and last pixel locator we need to plot */
-		start = data[c];
-		end   = data[c + 1];
-		
-		/* Handle all of the legal bit depths */
-		switch (bpp)
-		{
-			/* 256 colors -- pixel data is 8-bit */
-			case 1:
-			{
-				/*
-				 * Use entries in the pixel location array to jump to and
-				 * change pixels to our desired color.
-				 */
-				for (j = start; j < end; j++) *(Uint8*)(pd0 + data[j]) = (Uint8)colour;
-				break;
-			}
-				
-				/* 15 and 16-bit color (SDL handles the details) */
-			case 2:
-			{
-				for (j = start; j < end; j++) *(Uint16*)(pd0 + data[j]) = (Uint16)colour;
-				break;
-			}
-				
-				/* 32-bit color is easy.  24-bit color needs more testing. */
-			case 3:
-			case 4:
-			default:
-			{
-				for (j = start; j < end; j++) *(Uint32*)(pd0 + data[j]) = colour;
-				break;
-			}
-		}
+
+	RECT(x, y, n * font->width, font->height, &rc);
+	text = TTF_RenderUTF8_Solid(font->sdl_font, s, colour);
+	if (text) {
+		SDL_BlitSurface(text, NULL, surface, &rc);
+		SDL_FreeSurface(text);
 	}
 	
 	/* Unlock the surface */
@@ -708,11 +555,11 @@ static void sdl_ButtonDraw(sdl_Button *button)
 	SDL_Surface *surface = button->owner->window->surface;
 	sdl_Font *font = &button->owner->window->font;
 	
-	Uint32 colour = button->selected ? button->sel_colour : button->unsel_colour;
+	SDL_Color colour = button->selected ? button->sel_colour : button->unsel_colour;
 	
 	if (!button->visible) return;
 	
-	SDL_FillRect(surface, &button->pos, colour);
+	SDL_FillRect(surface, &button->pos, SDL_MapRGB(surface->format, colour.r, colour.g, colour.b));
 	
 	if (strlen(button->caption))
 	{
@@ -751,7 +598,7 @@ static void sdl_ButtonSize(sdl_Button *button, int w, int h)
 /*
  * Set the caption
  */
-static void sdl_ButtonCaption(sdl_Button *button, cptr s)
+static void sdl_ButtonCaption(sdl_Button *button, const char *s)
 {
 	my_strcpy(button->caption, s, sizeof(button->caption));
 	button->owner->need_update = TRUE;
@@ -845,9 +692,15 @@ static int sdl_ButtonBankNew(sdl_ButtonBank *bank)
 	new_button->owner = bank;
 	
 	/* Default colours */
-	new_button->unsel_colour = SDL_MapRGB(bank->window->surface->format, 160, 160, 60);
-	new_button->sel_colour = SDL_MapRGB(bank->window->surface->format, 210, 210, 110);
-	new_button->cap_colour = SDL_MapRGB(bank->window->surface->format, 0, 0, 0);
+	new_button->unsel_colour.r = 160;
+	new_button->unsel_colour.g = 160;
+	new_button->unsel_colour.b = 60;
+	new_button->sel_colour.r = 210;
+	new_button->sel_colour.g = 210;
+	new_button->sel_colour.b = 110;
+	new_button->cap_colour.r = 0;
+	new_button->cap_colour.g = 0;
+	new_button->cap_colour.b = 0;
 	
 	/* Success */
 	return (i);
@@ -993,7 +846,7 @@ static void sdl_WindowFree(sdl_Window* window)
 /*
  * Initialize a window
  */
-static void sdl_WindowInit(sdl_Window* window, int w, int h, SDL_Surface *owner, cptr fontname)
+static void sdl_WindowInit(sdl_Window* window, int w, int h, SDL_Surface *owner, const char *fontname)
 {
 	sdl_WindowFree(window);
 	window->owner = owner;
@@ -1022,7 +875,7 @@ static void sdl_WindowBlit(sdl_Window* window)
 	SDL_UpdateRects(window->owner, 1, &rc);
 }
 
-static void sdl_WindowText(sdl_Window* window, Uint32 c, int x, int y, cptr s)
+static void sdl_WindowText(sdl_Window* window, SDL_Color c, int x, int y, const char *s)
 {
 	sdl_FontDraw(&window->font, window->surface, c, x, y, strlen(s), s);
 }
@@ -1033,7 +886,7 @@ static void sdl_WindowUpdate(sdl_Window* window)
 	{
 		SDL_Event Event;
 		
-		SDL_FillRect(window->surface, NULL, back_colour);
+		SDL_FillRect(window->surface, NULL, back_pixel_colour);
 		
 		if (window->draw_extra) (*window->draw_extra)(window);
 		
@@ -1074,7 +927,7 @@ static void term_windowFree(term_window* win)
 }
 
 static errr save_prefs(void);
-static void hook_quit(cptr str)
+static void hook_quit(const char *str)
 {
 	int i;
 	
@@ -1093,6 +946,10 @@ static void hook_quit(cptr str)
 	/* Free the graphics surface */
 	if (GfxSurface) SDL_FreeSurface(GfxSurface);
 #endif
+
+	close_graphics_modes();
+	if (GfxButtons) FREE(GfxButtons);
+
 	/* Free the 'System font' */
 	sdl_FontFree(&SystemFont);
 	
@@ -1139,7 +996,7 @@ static void BringToTop(void)
 /*
  * Validate a file
  */
-static void validate_file(cptr s)
+static void validate_file(const char *s)
 {
 	if (!file_exists(s))
 		quit_fmt("Cannot find required file:\n%s", s);
@@ -1178,10 +1035,10 @@ static void draw_statusbar(sdl_Window *window)
 	
 	SDL_Rect rc;
 	
-	u32b c = SDL_MapRGB(window->surface->format, 160, 160, 60);
+	SDL_Color c = {160, 160, 60, 0};
 
 	RECT(0, StatusBar.height - 1, StatusBar.width, 1, &rc);
-	SDL_FillRect(StatusBar.surface, &rc, c);
+	SDL_FillRect(StatusBar.surface, &rc, SDL_MapRGB(StatusBar.surface->format, c.r, c.g, c.b));
 	
 	button = sdl_ButtonBankGet(&StatusBar.buttons, AboutSelect);
 	x += button->pos.w + 20;
@@ -1245,9 +1102,9 @@ static void sdl_BlitAll(void)
 	SDL_Rect rc;
 	sdl_Window *window = &StatusBar;
 	int i;
-	Uint32 colour = SDL_MapRGB(AppWin->format, 160, 160, 60);
+	SDL_Color colour = {160, 160, 60, 0};
 	/* int32 ccolour = SDL_MapRGB(AppWin->format, 160, 40, 40); */
-	SDL_FillRect(AppWin, NULL, back_colour);
+	SDL_FillRect(AppWin, NULL, back_pixel_colour);
 	
 	for (i = 0; i < ANGBAND_TERM_MAX; i++)
 	{
@@ -1344,27 +1201,34 @@ static void TermFocus(int idx)
 static void AboutDraw(sdl_Window *win)
 {
 	SDL_Rect rc;
+	SDL_Rect icon;
 	
 	/* Wow - a different colour! */
-	Uint32 colour = SDL_MapRGB(win->surface->format, 160, 60, 60);
+	SDL_Color colour = {160, 60, 60, 0};
 	
 	RECT(0, 0, win->width, win->height, &rc);
 	
 	/* Draw a nice box */
-	sdl_DrawBox(win->surface, &rc, colour, 5);
+	SDL_FillRect(win->surface, &win->surface->clip_rect, SDL_MapRGB(win->surface->format, 255,255,255));
+	sdl_DrawBox(win->surface, &win->surface->clip_rect, colour, 5);
+	if (mratt) {
+		RECT((win->width - mratt->w) / 2, 5, mratt->w, mratt->h, &icon);
+		SDL_BlitSurface(mratt, NULL, win->surface, &icon);
+	}
+	sdl_WindowText(win, colour, 20, 150, format("You are playing %s", buildid));
+	sdl_WindowText(win, colour, 20, 160, "See http://www.rephial.org");
 }
 
-	
 static void AboutActivate(sdl_Button *sender)
 {
-	int width = 300;
-	int height = 300;
+	int width = 350;
+	int height = 200;
 	
 	sdl_WindowInit(&PopUp, width, height, AppWin, StatusBar.font.name);
 	PopUp.left = (AppWin->w / 2) - width / 2;
 	PopUp.top = (AppWin->h / 2) - height / 2;
 	PopUp.draw_extra = AboutDraw;
-	
+
 	popped = TRUE;
 }
 
@@ -1514,23 +1378,23 @@ static void AcceptChanges(sdl_Button *sender)
 	if (use_graphics != SelectedGfx)
 	{
 		do_update = TRUE;
-		
 		use_graphics = SelectedGfx;
-		
-		if (use_graphics)
-		{
-			arg_graphics = TRUE;
-			load_gfx();
-		}
-		else
-		{
-			arg_graphics = FALSE;
-			tile_width = 1;
-			tile_height = 1;
-			reset_visuals(TRUE);
-		}
 	}
 	
+	if (use_graphics)
+	{
+		arg_graphics = TRUE;
+		load_gfx();
+	}
+	else
+	{
+		current_graphics_mode = NULL;
+		arg_graphics = FALSE;
+		tile_width = 1;
+		tile_height = 1;
+		reset_visuals(TRUE);
+	}
+
 	/* Invalidate all the gfx surfaces */
 	if (do_update)
 	{
@@ -1631,7 +1495,8 @@ static void MoreDraw(sdl_Window *win)
 	int y = 20, i;
 	
 	/* Wow - a different colour! */
-	Uint32 colour = SDL_MapRGB(win->surface->format, 160, 60, 60);
+	SDL_Color colour = {160, 60, 60, 0};
+	SDL_Color select_colour = {210, 110, 110, 0};
 	
 	RECT(0, 0, win->width, win->height, &rc);
 	
@@ -1640,56 +1505,71 @@ static void MoreDraw(sdl_Window *win)
 	
 #ifdef USE_GRAPHICS
 	
-	if (SelectedGfx)
-	{
-	        sdl_WindowText(win, colour, 20, y, format("Tile width is %d.", tile_width));
-		button = sdl_ButtonBankGet(&win->buttons, MoreWidthMinus);
+	button = sdl_ButtonBankGet(&win->buttons, MoreWidthMinus);
+	if (SelectedGfx) {
+		sdl_WindowText(win, colour, 20, y, format("Tile width is %d.", tile_width));
 		sdl_ButtonMove(button, 200, y);
-		
-		button = sdl_ButtonBankGet(&win->buttons, MoreWidthPlus);
-		sdl_ButtonMove(button, 230, y);
-
-		y += 20;
-
-	        sdl_WindowText(win, colour, 20, y, format("Tile height is %d.", tile_height));
-		button = sdl_ButtonBankGet(&win->buttons, MoreHeightMinus);
-		sdl_ButtonMove(button, 200, y);
-		
-		button = sdl_ButtonBankGet(&win->buttons, MoreHeightPlus);
-		sdl_ButtonMove(button, 230, y);
-                
-                y += 20;
+		sdl_ButtonVisible(button, TRUE);
+	} else {
+		sdl_ButtonVisible(button, FALSE);
 	}
-	
-	
-	
+
+	button = sdl_ButtonBankGet(&win->buttons, MoreWidthPlus);
+	if (SelectedGfx) {
+		sdl_ButtonMove(button, 230, y);
+		sdl_ButtonVisible(button, TRUE);
+		y += 20;
+	} else {
+		sdl_ButtonVisible(button, FALSE);
+	}
+
+	button = sdl_ButtonBankGet(&win->buttons, MoreHeightMinus);
+	if (SelectedGfx) {
+		sdl_WindowText(win, colour, 20, y, format("Tile height is %d.", tile_height));
+		sdl_ButtonMove(button, 200, y);
+		sdl_ButtonVisible(button, TRUE);
+	} else {
+		sdl_ButtonVisible(button, FALSE);
+	}
+
+	button = sdl_ButtonBankGet(&win->buttons, MoreHeightPlus);
+	if (SelectedGfx) {
+		sdl_ButtonMove(button, 230, y);
+		sdl_ButtonVisible(button, TRUE);
+		y += 20;
+	} else {
+		sdl_ButtonVisible(button, FALSE);
+	}
+
 	sdl_WindowText(win, colour, 20, y, "Selected Graphics:");
-	sdl_WindowText(win, SDL_MapRGB(win->surface->format, 210, 110, 110),
-				   200, y, GfxDesc[SelectedGfx].name);
-	
+	if (current_graphics_mode) {
+		sdl_WindowText(win, select_colour, 200, y, current_graphics_mode->menuname);
+	} else {
+		sdl_WindowText(win, select_colour, 200, y, "None");
+	}
 	y += 20;
-	
+
 	sdl_WindowText(win, colour, 20, y, "Available Graphics:");
 	
-	for (i = 0; i < GfxModes; i++)
-	{
-		if (!GfxDesc[i].avail) continue;
-		button = sdl_ButtonBankGet(&win->buttons, GfxButtons[i]);
+	i=0;
+	do {
+		if (!graphics_modes[i].menuname[0]) continue;
+		button = sdl_ButtonBankGet(&win->buttons, GfxButtons[graphics_modes[i].grafID]);
 		sdl_ButtonMove(button, 200, y);
 		y += 20;
-	}
+	} while (graphics_modes[i++].grafID != 0); 
 #endif	
-	
+
 	button = sdl_ButtonBankGet(&win->buttons, MoreFullscreen);
 	sdl_WindowText(win, colour, 20, y, "Fullscreen is:");
-	
+
 	sdl_ButtonMove(button, 200, y);
 	y+= 20;
-	
+
 	sdl_WindowText(win, colour, 20, y, format("Snap range is %d.", SnapRange));
 	button = sdl_ButtonBankGet(&win->buttons, MoreSnapMinus);
 	sdl_ButtonMove(button, 200, y);
-	
+
 	button = sdl_ButtonBankGet(&win->buttons, MoreSnapPlus);
 	sdl_ButtonMove(button, 230, y);
 }
@@ -1701,16 +1581,13 @@ static void MoreActivate(sdl_Button *sender)
 	int i;
 	sdl_Button *button;
 	
-	Uint32 ucolour;
-	Uint32 scolour;
+	SDL_Color ucolour = {160, 60, 60, 0};
+	SDL_Color scolour = {210, 110, 110, 0};
 	
 	sdl_WindowInit(&PopUp, width, height, AppWin, StatusBar.font.name);
 	PopUp.left = (AppWin->w / 2) - width / 2;
 	PopUp.top = (AppWin->h / 2) - height / 2;
 	PopUp.draw_extra = MoreDraw;
-	
-	ucolour = SDL_MapRGB(PopUp.surface->format, 160, 60, 60);
-	scolour = SDL_MapRGB(PopUp.surface->format, 210, 110, 110);
 	
 #ifdef USE_GRAPHICS
 	MoreWidthPlus = sdl_ButtonBankNew(&PopUp.buttons);
@@ -1759,20 +1636,20 @@ static void MoreActivate(sdl_Button *sender)
 	
 	SelectedGfx = use_graphics;
 	
-	for (i = 0; i < GfxModes; i++)
-	{
-		if (!GfxDesc[i].avail) continue;
-		GfxButtons[i] = sdl_ButtonBankNew(&PopUp.buttons);
-		button = sdl_ButtonBankGet(&PopUp.buttons, GfxButtons[i]);
+	i = 0;
+	do {
+		if (!graphics_modes[i].menuname[0]) continue;
+		GfxButtons[graphics_modes[i].grafID] = sdl_ButtonBankNew(&PopUp.buttons);
+		button = sdl_ButtonBankGet(&PopUp.buttons, GfxButtons[graphics_modes[i].grafID]);
 		
 		button->unsel_colour = ucolour;
 		button->sel_colour = scolour;
 		sdl_ButtonSize(button, 50 , PopUp.font.height + 2);
 		sdl_ButtonVisible(button, TRUE);
-		sdl_ButtonCaption(button, GfxDesc[i].name);
-		button->tag = i;
+		sdl_ButtonCaption(button, graphics_modes[i].menuname);
+		button->tag = graphics_modes[i].grafID;
 		button->activate = SelectGfx;
-	}
+	} while (graphics_modes[i++].grafID != 0); 
 #endif
 	MoreFullscreen = sdl_ButtonBankNew(&PopUp.buttons);
 	button = sdl_ButtonBankGet(&PopUp.buttons, MoreFullscreen);
@@ -2477,66 +2354,100 @@ static void sdl_keypress(SDL_keysym keysym)
 {
 	u16b key_code = keysym.unicode;
 	SDLKey key_sym = keysym.sym;
-	
+
+	int ch = 0;
+
 	/* Store the value of various modifier keys */
-	bool mc = (keysym.mod & (KMOD_CTRL)) > 0;
-	bool ms = (keysym.mod & (KMOD_SHIFT)) > 0;
-	bool ma = (keysym.mod & (KMOD_ALT)) > 0;
-	bool mm = (keysym.mod & (KMOD_META)) > 0;
-	
-	
+	bool mc = (keysym.mod & KMOD_CTRL) > 0;
+	bool ms = (keysym.mod & KMOD_SHIFT) > 0;
+	bool ma = (keysym.mod & KMOD_ALT) > 0;
+	bool mm = (keysym.mod & KMOD_META) > 0;
+	bool kp = FALSE;
+
+	byte mods = (ma ? KC_MOD_ALT : 0) | (mm ? KC_MOD_META : 0);
+
 	/* Ignore if main term is not initialized */
 	if (!Term) return;
-	
-	/* Handle print screen */
-	if (key_sym == SDLK_PRINT)
-	{
-		/* sdl_print_screen();*/
-		return;
-	}
-	
-	/* Ignore various keypress, including pure modifier keys */
-	if (ignore_key[key_sym]) return;
-	
-	/*
-	 * If the keycode is 7-bit ASCII (except numberpad), and ALT and META are not
-	 * pressed, send it directly to the application.
-	 */
-	if ((key_code) && !(key_code & (0xFF80)) && !is_numpad(key_sym) && !ma && !mm)
-	{
-		(void)Term_keypress(key_code);
-	}
-	
+
 	/* Handle all other valid SDL keys */
-	else if (key_sym < SDLK_LAST)
-	{
-		char buf[80];
-		int i;
-		
-		/* Begin the macro trigger */
-		(void)Term_keypress(31);
-		
-		/* Send the modifiers */
-		if (mc) Term_keypress('C');
-		if (ms) Term_keypress('S');
-		if (ma) Term_keypress('A');
-		if (mm) Term_keypress('M');
-		
-		/* Build the SDL key name */
-		my_strcpy(buf, format("[%s]", SDL_GetKeyName(key_sym)), 80);
-		
-		/* Convert and store key name */
-		for (i = 0; buf[i]; i++)
-		{
-			/* Make lowercase */
-			buf[i] = tolower(buf[i]);
-			
-			/* Replace spaces with underscores */
-			if (buf[i] == ' ') buf[i] = '_';
-			
-			/* Add to the keyqueue */
-			(void)Term_keypress(buf[i]);
-		}
+	switch (key_sym) {
+		/* keypad */
+		case SDLK_KP0: ch = '0'; kp = TRUE; break;
+		case SDLK_KP1: ch = '1'; kp = TRUE; break;
+		case SDLK_KP2: ch = '2'; kp = TRUE; break;
+		case SDLK_KP3: ch = '3'; kp = TRUE; break;
+		case SDLK_KP4: ch = '4'; kp = TRUE; break;
+		case SDLK_KP5: ch = '5'; kp = TRUE; break;
+		case SDLK_KP6: ch = '6'; kp = TRUE; break;
+		case SDLK_KP7: ch = '7'; kp = TRUE; break;
+		case SDLK_KP8: ch = '8'; kp = TRUE; break;
+		case SDLK_KP9: ch = '9'; kp = TRUE; break;
+		case SDLK_KP_PERIOD: ch = '.'; kp = TRUE; break;
+		case SDLK_KP_DIVIDE: ch = '/'; kp = TRUE; break;
+		case SDLK_KP_MULTIPLY: ch = '*'; kp = TRUE; break;
+		case SDLK_KP_MINUS: ch = '-'; kp = TRUE; break;
+		case SDLK_KP_PLUS: ch = '+'; kp = TRUE; break;
+		case SDLK_KP_ENTER: ch = '\n'; kp = TRUE; break;
+		case SDLK_KP_EQUALS: ch = '='; kp = TRUE; break;
+
+		/* have have these to get consistent ctrl-shift behaviour */
+		case SDLK_0: if (!ms || mc || ma) ch = '0'; break;
+		case SDLK_1: if (!ms || mc || ma) ch = '1'; break;
+		case SDLK_2: if (!ms || mc || ma) ch = '2'; break;
+		case SDLK_3: if (!ms || mc || ma) ch = '3'; break;
+		case SDLK_4: if (!ms || mc || ma) ch = '4'; break;
+		case SDLK_5: if (!ms || mc || ma) ch = '5'; break;
+		case SDLK_6: if (!ms || mc || ma) ch = '6'; break;
+		case SDLK_7: if (!ms || mc || ma) ch = '7'; break;
+		case SDLK_8: if (!ms || mc || ma) ch = '8'; break;
+		case SDLK_9: if (!ms || mc || ma) ch = '9'; break;
+
+		case SDLK_UP: ch = ARROW_UP; break;
+		case SDLK_DOWN: ch = ARROW_DOWN; break;
+		case SDLK_RIGHT: ch = ARROW_RIGHT; break;
+		case SDLK_LEFT: ch = ARROW_LEFT; break;
+
+		case SDLK_INSERT: ch = KC_INSERT; break;
+		case SDLK_HOME: ch = KC_HOME; break;
+		case SDLK_PAGEUP: ch = KC_PGUP; break;
+		case SDLK_DELETE: ch = KC_DELETE; break;
+		case SDLK_END: ch = KC_END; break;
+		case SDLK_PAGEDOWN: ch = KC_PGDOWN; break;
+
+		case SDLK_F1: ch = KC_F1; break;
+		case SDLK_F2: ch = KC_F2; break;
+		case SDLK_F3: ch = KC_F3; break;
+		case SDLK_F4: ch = KC_F4; break;
+		case SDLK_F5: ch = KC_F5; break;
+		case SDLK_F6: ch = KC_F6; break;
+		case SDLK_F7: ch = KC_F7; break;
+		case SDLK_F8: ch = KC_F8; break;
+		case SDLK_F9: ch = KC_F9; break;
+		case SDLK_F10: ch = KC_F10; break;
+		case SDLK_F11: ch = KC_F11; break;
+		case SDLK_F12: ch = KC_F12; break;
+		case SDLK_F13: ch = KC_F13; break;
+		case SDLK_F14: ch = KC_F14; break;
+		case SDLK_F15: ch = KC_F15; break;
+
+		default: break;
+	}
+
+	if (ch) {
+		if (kp) mods |= KC_MOD_KEYPAD;
+		if (mc) mods |= KC_MOD_CONTROL;
+		if (ms) mods |= KC_MOD_SHIFT;
+		Term_keypress(ch, mods);
+	} else if (key_code) {
+		/* If the keycode is 7-bit ASCII (except numberpad) send
+		 * directly to the game. */
+		if (mc && (key_sym == SDLK_TAB || key_sym == SDLK_RETURN ||
+				key_sym == SDLK_BACKSPACE ||
+				MODS_INCLUDE_CONTROL(key_code)))
+			mods |= KC_MOD_CONTROL;
+		if (ms && MODS_INCLUDE_SHIFT(key_code)) mods |= KC_MOD_SHIFT;
+
+		Term_keypress(key_code, mods);
 	}
 }
 
@@ -2710,7 +2621,7 @@ static errr Term_xtra_sdl_clear(void)
 	
 	
 	/* Fill the rectangle */
-	SDL_FillRect(win->surface, &rc, back_colour);
+	SDL_FillRect(win->surface, &rc, back_pixel_colour);
 	
 	/* Rectangle to update */
 	set_update_rect(win, &rc);
@@ -2796,7 +2707,7 @@ static errr Term_bigcurs_sdl(int col, int row)
 {
 	term_window *win = (term_window*)(Term->data);
 	
-	Uint32 colour = text_colours[TERM_YELLOW];
+	SDL_Color colour = text_colours[TERM_YELLOW];
 	
 	SDL_Rect rc;
 	
@@ -2821,7 +2732,7 @@ static errr Term_curs_sdl(int col, int row)
 {
 	term_window *win = (term_window*)(Term->data);
 	
-	Uint32 colour = text_colours[TERM_YELLOW];
+	SDL_Color colour = text_colours[TERM_YELLOW];
 	
 	SDL_Rect rc;
 	
@@ -2894,9 +2805,9 @@ static errr Term_xtra_sdl(int n, int v)
 			/* Re-initialize the colours */
 			for (i = 0; i < MAX_COLORS; i++)
 			{
-				text_colours[i] = SDL_MapRGB(AppWin->format, angband_color_table[i][1],
-											 angband_color_table[i][2],
-											 angband_color_table[i][3]);
+				text_colours[i].r = angband_color_table[i][1];
+				text_colours[i].g = angband_color_table[i][2];
+				text_colours[i].b = angband_color_table[i][3];
 			}
 		}
 	}
@@ -2923,7 +2834,7 @@ static errr Term_wipe_sdl(int col, int row, int n)
 	rc.y += win->title_height;
 	
 	/* Wipe it */
-	SDL_FillRect(win->surface, &rc, back_colour);
+	SDL_FillRect(win->surface, &rc, back_pixel_colour);
 	
 	/* Update */
 	set_update_rect(win, &rc);
@@ -2932,24 +2843,17 @@ static errr Term_wipe_sdl(int col, int row, int n)
 }
 
 /*
- * Given a position in the ISO Latin-1 character set, return
- * the correct character on this system.
- */
- static byte Term_xchar_sdl(byte c)
-{
- 	/* The Sdl port uses the Latin-1 standard */
- 	return (c);
-}
-
-/*
  * Draw some text to a window
  */
-static errr Term_text_sdl(int col, int row, int n, byte a, cptr s)
+static errr Term_text_sdl(int col, int row, int n, byte a, const wchar_t *s)
 {
 	term_window *win = (term_window*)(Term->data);
-	Uint32 colour = text_colours[a];
+	SDL_Color colour = text_colours[a];
 	int x = col * win->tile_wid;
 	int y = row * win->tile_hgt;
+	wchar_t src[255];
+	char mbstr[MB_LEN_MAX * 255];
+	size_t len;
 	
 	/* Translate */
 	x += win->border;
@@ -2960,9 +2864,15 @@ static errr Term_text_sdl(int col, int row, int n, byte a, cptr s)
 	
 	/* Clear the way */
 	Term_wipe_sdl(col, row, n);
-	
+
+	/* Take a copy of the incoming string, but truncate it at n chars */
+	wcsncpy(src, s, n);
+	src[n] = L'\0';
+	/* Convert to UTF-8 for display */
+	len = wcstombs(mbstr, src, n * MB_LEN_MAX);
+	mbstr[len] = '\0';
 	/* Draw it */
-	return (sdl_FontDraw(&win->font, win->surface, colour, x, y, n, s));
+	return (sdl_FontDraw(&win->font, win->surface, colour, x, y, n, mbstr));
 }
 
 #ifdef USE_GRAPHICS
@@ -3056,11 +2966,15 @@ static errr sdl_BuildTileset(term_window *win)
 	int x, y;
 	int ta, td;
 	int xx, yy;
-	GfxInfo *info = &GfxDesc[use_graphics];
-	
+	graphics_mode *info;
+
+	if (!GfxSurface) return (1);
+
+	info = get_graphics_mode(use_graphics);
+
 	/* Calculate the number of tiles across & down*/
-	ta = GfxSurface->w / info->width;
-	td = GfxSurface->h / info->height;
+	ta = GfxSurface->w / info->cell_width;
+	td = GfxSurface->h / info->cell_height;
 	
 	/* Calculate the size of the new surface */
 	x = ta * win->tile_wid * tile_width;
@@ -3068,37 +2982,32 @@ static errr sdl_BuildTileset(term_window *win)
 	
 	/* Make it */
 	win->tiles = SDL_CreateRGBSurface(SDL_SWSURFACE, x, y,
-									  GfxSurface->format->BitsPerPixel,
-									  GfxSurface->format->Rmask, GfxSurface->format->Gmask,
-									  GfxSurface->format->Bmask, GfxSurface->format->Amask);
+			GfxSurface->format->BitsPerPixel,
+			GfxSurface->format->Rmask, GfxSurface->format->Gmask,
+			GfxSurface->format->Bmask, GfxSurface->format->Amask);
 	
 	/* Bugger */
 	if (!win->tiles) return (1);
 	
 	/* For every tile... */
-	for (xx = 0; xx < ta; xx++)
-	{
-		for (yy = 0; yy < td; yy++)
-		{
+	for (xx = 0; xx < ta; xx++) {
+		for (yy = 0; yy < td; yy++) {
 			SDL_Rect src, dest;
-                        int dwid = win->tile_wid * tile_width;
-                        
-                        int dhgt = win->tile_hgt * tile_height;
-			
+			int dwid = win->tile_wid * tile_width;
+			int dhgt = win->tile_hgt * tile_height;
+
 			/* Source rectangle (on GfxSurface) */
-			RECT(xx * info->width, yy * info->height, info->width, info->height, &src);
-			
+			RECT(xx * info->cell_width, yy * info->cell_height,
+				 info->cell_width, info->cell_height, &src);
+
 			/* Destination rectangle (win->tiles) */
 			RECT(xx * dwid, yy * dhgt, dwid, dhgt, &dest);
-			
+
 			/* Do the stretch thing */
 			sdl_StretchBlit(GfxSurface, &src, win->tiles, &dest);
 		}
 	}
-	
-	/* Copy across the colour key */
-	SDL_SetColorKey(win->tiles, SDL_SRCCOLORKEY, GfxSurface->format->colorkey);
-					
+
 	return (0);
 }
 #endif
@@ -3108,8 +3017,8 @@ static errr sdl_BuildTileset(term_window *win)
  * XXX - This function _never_ seems to get called with n > 1 ?
  * This needs improvement...
  */
-static errr Term_pict_sdl(int col, int row, int n, const byte *ap, const char *cp,
-						  const byte *tap, const char *tcp)
+static errr Term_pict_sdl(int col, int row, int n, const byte *ap, const wchar_t *cp,
+						  const byte *tap, const wchar_t *tcp)
 {
 	
 #ifdef USE_GRAPHICS
@@ -3118,6 +3027,8 @@ static errr Term_pict_sdl(int col, int row, int n, const byte *ap, const char *c
 	
 	SDL_Rect rc, src;
 	int i, j;
+	char mbforeground[MB_LEN_MAX * 255];
+	char mbterrain[MB_LEN_MAX * 255];
 	
 	/* First time a pict is requested we load the tileset in */
 	if (!win->tiles)
@@ -3145,23 +3056,52 @@ static errr Term_pict_sdl(int col, int row, int n, const byte *ap, const char *c
 	for (i = 0; i < tile_width; i++)
 	        for (j = 0; j < tile_height; j++)
 		        Term_wipe_sdl(col + i, row + j, n);
+
+	wcstombs(mbforeground, cp, n * MB_LEN_MAX);
+	wcstombs(mbterrain, tcp, n * MB_LEN_MAX);
 	
 	/* Blit 'em! (it) */
 	for (i = 0; i < n; i++)
 	{
 		/* Get the terrain tile */
+		j = (tap[i] & 0x7f);
 		src.x = (tcp[i] & 0x7F) * src.w;
-		src.y = (tap[i] & 0x7F) * src.h;
+		src.y = j * src.h;
 		
+		/* if we are using overdraw, draw the top rectangle */
+		if (overdraw && (row > 2) && (j >= overdraw) && (j <= overdraw_max)) {
+			src.y -= rc.h;
+			rc.y -= rc.h;
+			rc.h = (rc.h << 1); /* double the height */
+			src.h = rc.h;
+			SDL_BlitSurface(win->tiles, &src, win->surface, &rc);
+			rc.h = (rc.h >> 1); /* halve the height */
+			rc.y += rc.h;
+			Term_mark(col, row-tile_height);
+			Term_mark(col, row);
+		} else
 		SDL_BlitSurface(win->tiles, &src, win->surface, &rc);
 		
 		/* If foreground is the same as background, we're done */
 		if ((tap[i] == ap[i]) && (tcp[i] == cp[i])) continue;
 		
 		/* Get the foreground tile */
+		j = (ap[i] & 0x7f);
 		src.x = (cp[i] & 0x7F) * src.w;
-		src.y = (ap[i] & 0x7F) * src.h;
+		src.y = j * src.h;
 		
+		/* if we are using overdraw, draw the top rectangle */
+		if (overdraw && (row > 2) && (j >= overdraw) && (j <= overdraw_max)) {
+			src.y -= rc.h;
+			rc.y -= rc.h;
+			rc.h = (rc.h << 1); /* double the height */
+			src.h = rc.h;
+			SDL_BlitSurface(win->tiles, &src, win->surface, &rc);
+			rc.h = (rc.h >> 1); /* halve the height */
+			rc.y += rc.h;
+			Term_mark(col, row-tile_height);
+			Term_mark(col, row);
+		} else
 		SDL_BlitSurface(win->tiles, &src, win->surface, &rc);
 	}
 	
@@ -3203,7 +3143,6 @@ static void term_data_link_sdl(term_window *win)
 	t->wipe_hook = Term_wipe_sdl;
 	t->text_hook = Term_text_sdl;
 	t->pict_hook = Term_pict_sdl;
-	t->xchar_hook = Term_xchar_sdl;
 	
 	/* Remember where we came from */
 	t->data = win;
@@ -3304,6 +3243,111 @@ static void init_morewindows(void)
 
 #ifdef USE_GRAPHICS
 
+/* if the tileset uses alpha blending, the tile set would have
+ * premultiplied alpha. SDL does not use this, so we need to undo
+ * the premultiply */
+static errr gfx_remove_premultiply(void)
+{
+	int i,j, bpp;
+	Uint32 value;
+	Uint8 r,g,b,a;
+	float rf,gf,bf,af;
+	SDL_PixelFormat *fmt;
+
+	fmt = GfxSurface->format;
+	bpp = fmt->BytesPerPixel;
+	if (SDL_LockSurface(GfxSurface)) {
+		/* there was some error */
+		return 1;
+	}
+	/* go through the pixels and unpremultiply them */
+	if (bpp == 4) {
+		Uint32 *row;
+		Uint32 *pixel;
+
+		for (j=0; j < GfxSurface->h; ++j) {
+			row = ((Uint32*)GfxSurface->pixels) +(j*(GfxSurface->pitch>>2));
+			for (i=0; i < GfxSurface->w; ++i) {
+				pixel = row + i;
+				if (*pixel) {
+					SDL_GetRGBA(*pixel,fmt,&r,&g,&b,&a);
+					if (a != 255) {
+						rf = ((float)r)/255.f;
+						gf = ((float)g)/255.f;
+						bf = ((float)b)/255.f;
+						af = ((float)a)/255.f;
+
+						r = (Uint8) ((rf/af)*255.f);
+						g = (Uint8) ((gf/af)*255.f);
+						b = (Uint8) ((bf/af)*255.f);
+
+						*pixel = SDL_MapRGBA(fmt,r,g,b,a);
+					}
+				}
+			}
+		}
+	} else
+	if (bpp == 2) {
+		Uint16 *row;
+		Uint16 *pixel;
+		for (j=0; j < GfxSurface->h; ++j) {
+			row = ((Uint16*)GfxSurface->pixels) +(j*(GfxSurface->pitch>>1));
+			for (i=0; i < GfxSurface->w; ++i) {
+				pixel = row + i;
+				if (*pixel) {
+					value = *pixel;
+					SDL_GetRGBA(value,fmt,&r,&g,&b,&a);
+					if (a != 255) {
+						rf = ((float)r)/255.f;
+						gf = ((float)g)/255.f;
+						bf = ((float)b)/255.f;
+						af = ((float)a)/255.f;
+
+						r = (Uint8) ((rf/af)*255.f);
+						g = (Uint8) ((gf/af)*255.f);
+						b = (Uint8) ((bf/af)*255.f);
+
+						value = SDL_MapRGBA(fmt,r,g,b,a);
+						*pixel = value;
+					}
+				}
+			}
+		}
+	} else
+	if (bpp == 1) {
+		Uint8 *row;
+		Uint8 *pixel;
+		for (j=0; j < GfxSurface->h; ++j) {
+			row = ((Uint8*)GfxSurface->pixels) +(j*(GfxSurface->pitch));
+			for (i=0; i < GfxSurface->w; ++i) {
+				pixel = row + i;
+				if (*pixel) {
+					value = *pixel;
+					SDL_GetRGBA(value,fmt,&r,&g,&b,&a);
+					if (a != 255) {
+						rf = ((float)r)/255.f;
+						gf = ((float)g)/255.f;
+						bf = ((float)b)/255.f;
+						af = ((float)a)/255.f;
+
+						r = (Uint8) ((rf/af)*255.f);
+						g = (Uint8) ((gf/af)*255.f);
+						b = (Uint8) ((bf/af)*255.f);
+
+						value = SDL_MapRGBA(fmt,r,g,b,a);
+						*pixel = value;
+					}
+				}
+			}
+		}
+	} else
+	{
+		return (2);
+	}
+	SDL_UnlockSurface(GfxSurface);
+	return (0);
+}
+
 /*
  * The new streamlined graphics loader.
  * Only uses colour keys.
@@ -3312,69 +3356,53 @@ static void init_morewindows(void)
 static errr load_gfx(void)
 {
 	char buf[1024];
-	cptr filename = GfxDesc[use_graphics].gfxfile;
+	const char *filename;
 	SDL_Surface *temp;
-	Uint8 r, g, b;
-	Uint32 key;
-	Uint32 Pixel = 0;
-	int x = GfxDesc[use_graphics].x, y = GfxDesc[use_graphics].y;
-	
-	/* This may be called when GRAPHICS_NONE is set */
-	if (!filename) return (0);
-	
+
+	if (current_graphics_mode && GfxSurface
+		&& (use_graphics == current_graphics_mode->grafID)) {
+		return (0);
+	}
+
+	current_graphics_mode = get_graphics_mode(use_graphics);
+	if (current_graphics_mode) {
+		filename = current_graphics_mode->file;
+	} else {
+		filename = NULL;
+	}
+
 	/* Free the old surface */
 	if (GfxSurface) SDL_FreeSurface(GfxSurface);
-	
+
+	/* This may be called when GRAPHICS_NONE is set */
+	if (!filename) return (0);
+
 	/* Find and load the file into a temporary surface */
 	path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_GRAF, filename);
 	temp = IMG_Load(buf);
-	
-	/* Oops */
 	if (!temp) return (1);
-	
+
 	/* Change the surface type to the current video surface format */
-	GfxSurface = SDL_DisplayFormat(temp);
-	
-	/* Use a colour key */
-	/* Get a pixel value depending on bit-depth */
-	switch (GfxSurface->format->BytesPerPixel)
-	{
-		case 1:
-		{
-			Uint8 *p = (Uint8*)GfxSurface->pixels + x + (y * GfxSurface->pitch);
-			Pixel = *p;
-		}
-		case 2:
-		{
-			Uint16 *p = (Uint16*)GfxSurface->pixels + (x * 2) + (y * GfxSurface->pitch);
-			Pixel = *p;
-		}
-		case 3:
-		case 4:
-		{
-			Uint32 *p = (Uint32*)GfxSurface->pixels + (x * GfxSurface->format->BytesPerPixel) + (y * GfxSurface->pitch);
-			Pixel = *p;
-		}
+	GfxSurface = SDL_DisplayFormatAlpha(temp);
+
+	/* if the tileset uses alpha blending, the tile set would have
+         * premultiplied alpha. SDL does not use this, so we need to undo
+         * the premultiply */
+	if (GfxSurface && current_graphics_mode->alphablend) {
+		errr result;
+		result = gfx_remove_premultiply();
+		if (result)
+			return result;
 	}
-	
-	/* Get the colour values */
-	SDL_GetRGB(Pixel, GfxSurface->format, &r, &g, &b);
-	
-	/* Create a key */
-	key = SDL_MapRGB(GfxSurface->format, r, g, b);
-	
-	/* Set the colour key */
-	SDL_SetColorKey(GfxSurface, SDL_SRCCOLORKEY, key);
-	
-	/* Lose the temporary surface */
-	SDL_FreeSurface(temp);
-	
+
 	/* Make sure we know what pref file to use */
-	ANGBAND_GRAF = GfxDesc[use_graphics].pref;
-	
+	ANGBAND_GRAF = current_graphics_mode->pref;
+	overdraw = current_graphics_mode->overdrawRow;
+	overdraw_max = current_graphics_mode->overdrawMax;
+
 	/* Reset the graphics mapping for this tileset */
 	if (character_dungeon) reset_visuals(TRUE);
-	
+
 	/* All good */
 	return (0);
 }
@@ -3395,31 +3423,31 @@ static void init_gfx(void)
 	/* Make sure */
 	use_graphics = GRAPHICS_NONE;
 	tile_width = 1;
-        tile_height = 1;
+	tile_height = 1;
 #else
-	GfxInfo *info = &GfxDesc[use_graphics];
 	int i;
 	
 	/* Check for existence of required files */
-	for (i = 0; i < GfxModes; i++)
-	{
+	i = 0;
+	do {
 		char path[1024];
 		
 		/* Check the graphic file */
-		if (GfxDesc[i].gfxfile)
-		{
-			path_build(path, sizeof(path), ANGBAND_DIR_XTRA_GRAF, GfxDesc[i].gfxfile);
+		if (graphics_modes[i].file[0]) {
+			path_build(path, sizeof(path), ANGBAND_DIR_XTRA_GRAF, graphics_modes[i].file);
 
-			if (!file_exists(path))
-			{
-				plog_fmt("Can't find file %s - graphics mode '%s' will be disabled.", path, GfxDesc[i].name);
-				GfxDesc[i].avail = FALSE;
+			if (!file_exists(path)) {
+				plog_fmt("Can't find file %s - graphics mode '%s' will be disabled.", path, graphics_modes[i].menuname);
+				graphics_modes[i].file[0] = 0;
+			}
+			if (i == use_graphics) {
+				current_graphics_mode = &(graphics_modes[i]);
 			}
 		}
-	}
+	} while (graphics_modes[i++].grafID != 0); 
 	
 	/* Check availability (default to no graphics) */
-	if (!info->avail)
+	if (!current_graphics_mode->file[0])
 	{
 		use_graphics = GRAPHICS_NONE;
 		arg_graphics = FALSE;
@@ -3484,6 +3512,7 @@ static void init_sdl_local(void)
 	
 	int i;
 	int h, w;
+	char path[1024];
 	
 	/* Get information about the video hardware */
 	VideoInfo = SDL_GetVideoInfo();
@@ -3513,12 +3542,6 @@ static void init_sdl_local(void)
 	/* Set the window caption */
 	SDL_WM_SetCaption(VERSION_NAME, NULL);
 	
-	/* Initialize the ignored keypresses */
-	for (i = 0; ignore_key_list[i]; i++)
-	{
-		ignore_key[ignore_key_list[i]] = TRUE;
-	}
-	
 	/* Enable key repeating; use defaults */
 	(void)SDL_EnableKeyRepeat(SDL_DEFAULT_REPEAT_DELAY, SDL_DEFAULT_REPEAT_INTERVAL);
 	
@@ -3526,18 +3549,18 @@ static void init_sdl_local(void)
 	(void)SDL_EnableUNICODE(1);
 	
 	/* Build a color for "black" that matches the pixel depth of this surface */
-	back_colour = SDL_MapRGB(AppWin->format, angband_color_table[TERM_DARK][1],
-						   angband_color_table[TERM_DARK][2],
-						   angband_color_table[TERM_DARK][3]);
-	
-	
+	back_colour.r = angband_color_table[TERM_DARK][1];
+	back_colour.g = angband_color_table[TERM_DARK][2];
+	back_colour.b = angband_color_table[TERM_DARK][3];
+	back_pixel_colour = SDL_MapRGB(AppWin->format, back_colour.r,
+						   back_colour.g, back_colour.b);
 	
 	/* Initialize the colours */
 	for (i = 0; i < MAX_COLORS; i++)
 	{
-		text_colours[i] = SDL_MapRGB(AppWin->format, angband_color_table[i][1],
-									 angband_color_table[i][2],
-									 angband_color_table[i][3]);
+		text_colours[i].r = angband_color_table[i][1];
+		text_colours[i].g = angband_color_table[i][2];
+		text_colours[i].b = angband_color_table[i][3];
 	}
 	
 	/* Get the height of the status bar */
@@ -3545,7 +3568,42 @@ static void init_sdl_local(void)
 	StatusHeight = h + 3;
 	
 	/* Font used for window titles */
-	sdl_FontCreate(&SystemFont, DEFAULT_FONT_FILE, AppWin); 
+	sdl_FontCreate(&SystemFont, DEFAULT_FONT_FILE, AppWin);
+
+	/* Get the icon for display in the About box */
+	path_build(path, sizeof(path), ANGBAND_DIR_XTRA_ICON, "att-128.png");
+	if (file_exists(path))
+		mratt = IMG_Load(path);
+}
+
+/**
+ * Font sorting function
+ *
+ * Orders by width, then height, then face
+ */
+static int cmp_font(const void *f1, const void *f2)
+{
+	const char *font1 = *(const char **)f1;
+	const char *font2 = *(const char **)f2;
+	int height1, height2;
+	int width1, width2;
+	char face1[5], face2[5];
+
+	sscanf(font1, "%dx%d%4s.", &width1, &height1, face1);
+	sscanf(font2, "%dx%d%4s.", &width2, &height2, face2);
+
+	if (width1 < width2)
+		return -1;
+	else if (width1 > width2)
+		return 1;
+	else {
+		if (height1 < height2)
+			return -1;
+		else if (height1 > height2)
+			return 1;
+		else
+			return strcmp(face1, face2);
+	}
 }
 
 /** 
@@ -3576,8 +3634,7 @@ static void init_paths(void)
 	if (!dir) return;
 
 	/* Read every font to the limit */
-	while (my_dread(dir, buf, sizeof buf))
-	{
+	while (my_dread(dir, buf, sizeof buf)) {
 		/* Check for file extension */
 		if (suffix(buf, ".fon"))
 			FontList[num_fonts++] = string_make(buf);
@@ -3586,6 +3643,7 @@ static void init_paths(void)
 		if (num_fonts == MAX_FONTS) break;
 	}
 
+	sort(FontList, num_fonts, sizeof(FontList[0]), cmp_font);
 	/* Done */
 	my_dclose(dir);
 }
@@ -3614,6 +3672,10 @@ int init_sdl(int argc, char *argv[])
 
 	/* Init some extra paths */
 	init_paths();
+	
+	/* load possible graphics modes */
+	init_graphics_modes("graphics.txt");
+	GfxButtons = mem_zalloc(sizeof(int) * (graphics_mode_high_id+1));
 	
 	/* Load prefs */
 	load_prefs();

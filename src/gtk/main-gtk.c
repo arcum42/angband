@@ -17,12 +17,14 @@
  */
  
 #include "angband.h"
+#include "buildid.h"
+#include "player/player.h"
+#include "grafmode.h"
 
 #ifdef USE_GTK
 #include "main-gtk.h"
 #include "textui.h"
 #include "files.h"
-#include "macro.h"
 #include "init.h"
 
 /* this is used to draw the various terrain characters */
@@ -32,8 +34,6 @@ static unsigned int graphics_table[32] = {
 	'~', '-', '-', '-', '_', '+', '+', '+',
 	'+', '|', '?', '?', '?', '?', '?', '.',
 };
-
-iconv_t conv;
 
 /* 
  *Add a bunch of debugger message, to trace where problems are. 
@@ -46,7 +46,7 @@ iconv_t conv;
 #define VERBOSE_DEBUG
 
 #ifdef GTK_DEBUG
-static void surface_status(cptr function_name, term_data *td)
+static void surface_status(const char *function_name, term_data *td)
 {
 	if (td->surface == NULL) 
 		glog("No Surface for %s in '%s'", function_name, td->name);
@@ -61,12 +61,12 @@ static void surface_status(cptr function_name, term_data *td)
 #ifdef USE_GTK_BUILDER
 #define GTK_XML "angband.xml"
 
-static GtkWidget *get_widget(GtkBuilder *xml, cptr name)
+static GtkWidget *get_widget(GtkBuilder *xml, const char *name)
 {
 	return GTK_WIDGET(gtk_builder_get_object(xml, name));
 }
 
-static GtkBuilder *get_gtk_xml(cptr buf, cptr secondary)
+static GtkBuilder *get_gtk_xml(const char *buf, const char *secondary)
 {
 	GtkBuilder *xml;
 	int e = 0;
@@ -80,12 +80,12 @@ static GtkBuilder *get_gtk_xml(cptr buf, cptr secondary)
 #else
 #define GTK_XML "angband.glade"
 
-static GtkWidget *get_widget(GladeXML *xml, cptr name)
+static GtkWidget *get_widget(GladeXML *xml, const char *name)
 {
 	return GTK_WIDGET(glade_xml_get_widget(xml, name));
 }
 
-static GladeXML *get_gtk_xml(cptr buf, cptr secondary)
+static GladeXML *get_gtk_xml(const char *buf, const char *secondary)
 {
 	return glade_xml_new(buf, secondary, NULL);
 }
@@ -123,7 +123,7 @@ static bool get_term_menu(int number)
 
 }
 
-static int xtra_window_from_name(cptr s)
+static int xtra_window_from_name(const char *s)
 {
 	xtra_win_data *xd;
 	int i = 0,t = -1;
@@ -137,7 +137,7 @@ static int xtra_window_from_name(cptr s)
 	return(t);
 }
 
-static int xtra_window_from_drawing_area(cptr s)
+static int xtra_window_from_drawing_area(const char *s)
 {
 	xtra_win_data *xd;
 	int i = 0,t = -1;
@@ -154,17 +154,17 @@ static int xtra_window_from_widget(GtkWidget *widget)
 	return xtra_window_from_name(gtk_widget_get_name(widget));
 }
 
-static int td_from_name(cptr s, cptr pattern)
+static int td_from_name(const char *s, const char *pattern)
 {
 	int t = -1;
 	sscanf(s, pattern, &t);
 	return(t);
 }
-static int term_window_from_name(cptr s)
+static int term_window_from_name(const char *s)
 {
 	return td_from_name(s, "term_window_%d");
 }
-static int td_from_widget(GtkWidget *widget, cptr pattern)
+static int td_from_widget(GtkWidget *widget, const char *pattern)
 {
 	return td_from_name(gtk_widget_get_name(widget), pattern);
 }
@@ -488,7 +488,7 @@ int button_kill_gui(unsigned char keypress)
 
 	/* Redraw */
 	p_ptr->redraw |= (PR_BUTTONS);
-	redraw_stuff();
+	redraw_stuff(p_ptr);
 
 	/* Return the size of the button */
 	return 0 /*(length)*/;
@@ -523,81 +523,43 @@ static errr Term_wipe_gtk(int x, int y, int n)
 	return (0);
 }
 
-static byte Term_xchar_gtk(byte c)
-{
-	/* Can't translate Latin-1 to UTF-8 here since we have to return a byte. */
-	return c;
-}
-
-char *process_control_chars(int n, cptr s)
-{
-	char *s2 = (char *)malloc(sizeof(char) * n);
-	int i;
-	for (i = 0; i < n; i++) {
-		unsigned char c = s[i];
-		if (c < 32) {
-			s2[i] = graphics_table[c];
-		} else if (c == 127) {
-			s2[i] = '#';
-		} else {
-			s2[i] = c;
-		}
-	}
-
-	return s2;
-}
-
-char *latin1_to_utf8(int n, cptr s)
-{
-	size_t inbytes = n;
-	char *s2 = process_control_chars(n, s);
-	char *p2 = s2;
-
-	size_t outbytes = 4 * n;
-	char *s3 = (char *)malloc(sizeof(char) * outbytes);
-	char *p3 = s3;
-
-	size_t result = iconv(conv, &p2, &inbytes, &p3, &outbytes);
-
-	if (result == (size_t)(-1)) {
-		printf("iconv() failed: %d\n", errno);
-		free(s3);
-		return s2;
-	} else {
-		free(s2);
-		return s3;
-	}
-}
-
 /*
  * Draw some textual characters.
  */
-static errr Term_text_gtk(int x, int y, int n, byte a, cptr s)
+static errr Term_text_gtk(int x, int y, int n, byte a, const wchar_t *s)
 {
 	term_data *td = (term_data*)(Term->data);
 	cairo_rectangle_t r;
+	wchar_t src[255];
+	char mbstr[MB_LEN_MAX * 255];
+	size_t len;
 
-	char *s2;
-	if (conv == NULL)
-		s2 = process_control_chars(n, s);
-	else
-		s2 = latin1_to_utf8(n, s);
+	/* Take a copy of the incoming string, but truncate it at n chars */
+	wcsncpy(src, s, n);
+	src[n] = L'\0';
+	/* Convert to UTF-8 for display */
+	len = wcstombs(mbstr, src, n * MB_LEN_MAX);
+	mbstr[len] = '\0';
 
 	init_cairo_rect(&r, (td->font.w * x), (td->font.h * y),  (td->font.w * n), td->font.h);
-	draw_text(td->surface, &td->font, &td->actual, x, y, n, a, s2);
+	draw_text(td->surface, &td->font, &td->actual, x, y, len, a, mbstr);
 	invalidate_drawing_area(td->drawing_area, r);
 	
-	free(s2);
 	return (0);
 }
 
-static errr Term_pict_gtk(int x, int y, int n, const byte *ap, const char *cp, const byte *tap, const char *tcp)
+static errr Term_pict_gtk(int x, int y, int n, const byte *ap, const wchar_t *cp, const byte *tap, const wchar_t *tcp)
 {
 	term_data *td = (term_data*)(Term->data);
 	cairo_rectangle_t r;
+	char mbforeground[MB_LEN_MAX * 255];
+	char mbterrain[MB_LEN_MAX * 255];
 	
+	wcstombs(mbforeground, cp, n * MB_LEN_MAX);
+	wcstombs(mbterrain, tcp, n * MB_LEN_MAX);
+
 	init_cairo_rect(&r, (td->actual.w * x), (td->actual.h * y),  (td->actual.w * n), (td->actual.h));
-	draw_tiles(td->surface, x, y, n, ap, cp, tap, tcp, &td->font, &td->actual, &td->tile);
+	draw_tiles(td->surface, x, y, n, ap, mbforeground, tap, mbterrain, &td->font, &td->actual, &td->tile);
 	invalidate_drawing_area(td->drawing_area, r);
 			
 	return (0);
@@ -739,10 +701,11 @@ static bool save_game_gtk(void)
 	return(TRUE);
 }
 
-static void hook_quit(cptr str)
+static void hook_quit(const char *str)
 {
 	gtk_log_fmt(TERM_RED,"%s", str);
 	save_prefs();
+	close_graphics_modes();
 	release_memory();
 	exit(0);
 }
@@ -752,6 +715,7 @@ gboolean quit_event_handler(GtkWidget *widget, GdkEventButton *event, gpointer u
 	if (save_game_gtk())
 	{
 		save_prefs();
+		close_graphics_modes();
 		quit(NULL);
 		exit(0);
 		return(FALSE);
@@ -762,6 +726,7 @@ gboolean quit_event_handler(GtkWidget *widget, GdkEventButton *event, gpointer u
 
 gboolean destroy_event_handler(GtkWidget *widget, GdkEventButton *event, gpointer user_data)
 {
+	close_graphics_modes();
 	quit(NULL);
 	exit(0);
 	return(FALSE);
@@ -783,7 +748,7 @@ gboolean new_event_handler(GtkWidget *widget, GdkEventButton *event, gpointer us
 	}
 }
 
-static void load_font_by_name(term_data *td, cptr font_name)
+static void load_font_by_name(term_data *td, const char *font_name)
 {	
 	PangoFontDescription *temp_font;
 	char buf[80];
@@ -1027,119 +992,123 @@ gboolean delete_event_handler(GtkWidget *widget, GdkEvent *event, gpointer user_
 
 gboolean keypress_event_handler(GtkWidget *widget, GdkEventKey *event, gpointer user_data)
 {
-	int i, mc, ms, mo, mx;
-	guint modifiers;
+	byte mods;
 
-	char msg[128];
+	int ch = 0;
+	guint modifiers = gtk_accelerator_get_default_mod_mask();
 
-	modifiers = gtk_accelerator_get_default_mod_mask ();
-	
 	/* Extract four "modifier flags" */
-	mc = ((event->state & modifiers) == GDK_CONTROL_MASK) ? TRUE : FALSE;
-	ms = ((event->state & modifiers) == GDK_SHIFT_MASK) ? TRUE : FALSE;
-	mo = ((event->state & modifiers) == GDK_MOD1_MASK) ? TRUE : FALSE;
-	mx = ((event->state & modifiers) == GDK_MOD3_MASK) ? TRUE : FALSE;
+	int mc = ((event->state & modifiers) == GDK_CONTROL_MASK) ? TRUE : FALSE;
+	int ms = ((event->state & modifiers) == GDK_SHIFT_MASK) ? TRUE : FALSE;
+	int mo = ((event->state & modifiers) == GDK_MOD1_MASK) ? TRUE : FALSE;
+	int mx = ((event->state & modifiers) == GDK_MOD3_MASK) ? TRUE : FALSE;
+	int kp = FALSE;
 
-	/*
-	 * Hack XXX
-	 * Parse shifted numeric (keypad) keys specially.
-	 */
-	if (ms && (event->keyval >= GDK_KP_0) && (event->keyval <= GDK_KP_9))
-	{
-		/* Build the macro trigger string */
-		strnfmt(msg, sizeof(msg), "%cS_%X%c", 31, event->keyval, 13);
-
-		/* Enqueue the "macro trigger" string */
-		for (i = 0; msg[i]; i++) Term_keypress(msg[i]);
-
-		/* Hack -- auto-define macros as needed */
-		if (event->length && (macro_find_exact(msg) < 0))
-		{
-			/* Create a macro */
-			macro_add(msg, event->string);
-		}
-
-		return (TRUE);
-	}
-
-	/* Normal keys with no modifiers (except control) */
-	if (event->length && !mo && !mx)
-	{
-		/* Enqueue the normal key(s) */
-		for (i = 0; i < event->length; i++) Term_keypress(event->string[i]);
-
-		if (!mc)
-			return (TRUE); /* Not a control key, so the keypress is handled */
-		else
-			return(FALSE); /* Pass the keypress along, so the menus get it */
-	}
-
-
-	/* Handle a few standard keys (bypass modifiers) XXX XXX XXX */
-	switch (event->keyval)
-	{
-		case GDK_Escape:
-		{
-			Term_keypress(ESCAPE);
-			return (TRUE);
-		}
-
-		case GDK_Return:
-		{
-			Term_keypress('\r');
-			return (TRUE);
-		}
-
-		case GDK_Tab:
-		{
-			Term_keypress('\t');
-			return (TRUE);
-		}
-
-		case GDK_Delete:
-		case GDK_BackSpace:
-		{
-			Term_keypress('\010');
-			return (TRUE);
-		}
-
-		case GDK_Shift_L:
-		case GDK_Shift_R:
-		case GDK_Control_L:
-		case GDK_Control_R:
-		case GDK_Caps_Lock:
-		case GDK_Shift_Lock:
-		case GDK_Meta_L:
-		case GDK_Meta_R:
-		case GDK_Alt_L:
-		case GDK_Alt_R:
-		case GDK_Super_L:
-		case GDK_Super_R:
-		case GDK_Hyper_L:
+	/* see gdk/gdkkeysyms.h */
+	// http://www.koders.com/c/fidD9E5E78FD91FE6ABDD6D3F78DA5E4A0FADE79933.aspx
+	switch (event->keyval) {
+		case GDK_Shift_L: case GDK_Shift_R: case GDK_Control_L:
+		case GDK_Control_R: case GDK_Caps_Lock: case GDK_Shift_Lock:
+		case GDK_Meta_L: case GDK_Meta_R: case GDK_Alt_L: case GDK_Alt_R:
+		case GDK_Super_L: case GDK_Super_R: case GDK_Hyper_L:
 		case GDK_Hyper_R:
-		{
-			/* Hack - do nothing to control characters */
-			return (TRUE);
-		}
+			/* ignore things that are just modifiers */
+			return TRUE;
+
+		case GDK_BackSpace: ch = KC_BACKSPACE; break;
+		case GDK_Tab: ch = KC_TAB; break;
+		case GDK_Return: ch = KC_RETURN; break;
+		case GDK_Escape: ch = ESCAPE; break;
+		case GDK_Delete: ch = KC_DELETE; break;
+
+		case GDK_Home: ch = KC_HOME; break;
+		case GDK_Left: ch = ARROW_LEFT; break;
+		case GDK_Up: ch = ARROW_UP; break;
+		case GDK_Right: ch = ARROW_RIGHT; break;
+		case GDK_Down: ch = ARROW_DOWN; break;
+		case GDK_Page_Up: ch = KC_PGUP; break;
+		case GDK_Page_Down: ch = KC_PGDOWN; break;
+		case GDK_End: ch = KC_END; break;
+		case GDK_Insert: ch = KC_INSERT; break;
+
+		/* keypad */
+		case GDK_KP_Insert:
+		case GDK_KP_End:
+		case GDK_KP_Down:
+		case GDK_KP_Page_Down:
+		case GDK_KP_Left:
+		case GDK_KP_Right:
+		case GDK_KP_Home:
+		case GDK_KP_Up:
+		case GDK_KP_Page_Up:
+		case GDK_KP_Decimal:
+		case GDK_KP_Divide:
+		case GDK_KP_Multiply:
+		case GDK_KP_Subtract:
+		case GDK_KP_Add:
+		case GDK_KP_Enter:
+		case GDK_KP_Equal:
+			switch(event->keyval) {
+				case GDK_KP_Insert: ch = '0'; break;
+				case GDK_KP_End: ch = '1'; break;
+				case GDK_KP_Down: ch = '2'; break;
+				case GDK_KP_Page_Down: ch = '3'; break;
+				case GDK_KP_Left: ch = '4'; break;
+				case GDK_KP_Right: ch = '6'; break;
+				case GDK_KP_Home: ch = '7'; break;
+				case GDK_KP_Up: ch = '8'; break;
+				case GDK_KP_Page_Up: ch = '9'; break;
+				case GDK_KP_Decimal: ch = '.'; break;
+				case GDK_KP_Divide: ch = '/'; break;
+				case GDK_KP_Multiply: ch = '*'; break;
+				case GDK_KP_Subtract: ch = '-'; break;
+				case GDK_KP_Add: ch = '+'; break;
+				case GDK_KP_Enter: ch = '\n';break;
+				case GDK_KP_Equal: ch = '='; break;
+			}
+
+		/* intentional fall-though */
+		case GDK_KP_0: case GDK_KP_1: case GDK_KP_2:
+		case GDK_KP_3: case GDK_KP_4: case GDK_KP_5:
+		case GDK_KP_6: case GDK_KP_7: case GDK_KP_8:
+		case GDK_KP_9: kp = TRUE; break;
+
+		case GDK_F1: ch = KC_F1; break;
+		case GDK_F2: ch = KC_F2; break;
+		case GDK_F3: ch = KC_F3; break;
+		case GDK_F4: ch = KC_F4; break;
+		case GDK_F5: ch = KC_F5; break;
+		case GDK_F6: ch = KC_F6; break;
+		case GDK_F7: ch = KC_F7; break;
+		case GDK_F8: ch = KC_F8; break;
+		case GDK_F9: ch = KC_F9; break;
+		case GDK_F10: ch = KC_F10; break;
+		case GDK_F11: ch = KC_F11; break;
+		case GDK_F12: ch = KC_F12; break;
+		case GDK_F13: ch = KC_F13; break;
+		case GDK_F14: ch = KC_F14; break;
+		case GDK_F15: ch = KC_F15; break;
 	}
 
-	/* Build the macro trigger string */
-	strnfmt(msg, sizeof(msg), "%c%s%s%s%s_%X%c", 31,
-	        mc ? "N" : "", ms ? "S" : "",
-	        mo ? "O" : "", mx ? "M" : "",
-	        event->keyval, 13);
+	mods = (mo ? KC_MOD_ALT : 0) | (mx ? KC_MOD_META : 0) |
+			(kp ? KC_MOD_KEYPAD : 0);
 
-	/* Enqueue the "macro trigger" string */
-	for (i = 0; msg[i]; i++) Term_keypress(msg[i]);
+	if (ch) {
+		mods |= (mc ? KC_MOD_CONTROL : 0) | (ms ? KC_MOD_SHIFT : 0);
+		Term_keypress(ch, mods);
+	} else if (event->length == 1) {
+		keycode_t code = event->string[0];
 
-	/* Hack -- auto-define macros as needed */
-	if (event->length && (macro_find_exact(msg) < 0))
-	{
-		/* Create a macro */
-		macro_add(msg, event->string);
+		if (mc && MODS_INCLUDE_CONTROL(code)) mods |= KC_MOD_CONTROL;
+		if (ms && MODS_INCLUDE_SHIFT(code)) mods |= KC_MOD_SHIFT;
+
+		Term_keypress(code, mods);
+
+		/* Control keys get passed along to menus, are not "handled" */
+		return !mc;
 	}
 
-	return (TRUE);
+	return TRUE;
 }
 
 static void save_prefs(void)
@@ -1214,7 +1183,7 @@ static void save_prefs(void)
 
 static int check_env_i(char* name, int i, int dfault)
 {
-	cptr str;
+	const char *str;
 	int val;
 	char buf[1024];
 	
@@ -1227,9 +1196,9 @@ static int check_env_i(char* name, int i, int dfault)
 	return val;
 }
 
-static int get_value(cptr buf)
+static int get_value(const char *buf)
 {
-	cptr str;
+	const char *str;
 	int i;
 	
 	str = strstr(buf, "=");
@@ -1241,7 +1210,7 @@ static int get_value(cptr buf)
 static void load_term_prefs()
 {
 	int t = 0, x = 0, line = 0, val = 0, section = 0;
-	cptr str;
+	const char *str;
 	char buf[1024];
 	ang_file *fff;
 	term_data *td = &data[0];
@@ -1446,7 +1415,7 @@ gboolean expose_event_handler(GtkWidget *widget, GdkEventExpose *event, gpointer
 	int i;
 	term_data *td;
 	int t = -1;
-	cptr str;
+	const char *str;
 	
 	str = gtk_widget_get_name(widget);
 	sscanf(str, "term_drawing_area_%d", &t);
@@ -1606,14 +1575,11 @@ gboolean toggle_term_window(GtkWidget *widget, GdkEvent *event, gpointer user_da
 	term_data *td;
 
 	int t;
-	bool window_is_visible;
 	const char *s;
 
 	s = gtk_widget_get_name(widget);
 	sscanf(s, "term_menu_item_%d", &t);
 	td = &data[t];
-
-	window_is_visible = (GTK_WIDGET_VISIBLE(GTK_WIDGET(td->win)));
 
 	if (widget != NULL)
 		td->visible = gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(widget));
@@ -1662,56 +1628,17 @@ static void init_graf(int g)
 	term_data *td= &data[0];
 	int i = 0;
 	
-	arg_graphics = g;
-	
-	switch(arg_graphics)
-	{
-		case GRAPHICS_NONE:
-		{
-			ANGBAND_GRAF = "none";
-			
+	do {
+		if (g == graphics_modes[i].grafID) {
+			arg_graphics = g;
+			ANGBAND_GRAF = graphics_modes[i].pref;
+			path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_GRAF, graphics_modes[i].file);
 			use_transparency = FALSE;
-			td->tile.w = td->font.w;
-			td->tile.h = td-> font.h;
+			td->tile.w = graphics_modes[i].cell_width;
+			td->tile.h = graphics_modes[i].cell_height;
 			break;
 		}
-
-		case GRAPHICS_ORIGINAL:
-		{
-			ANGBAND_GRAF = "old";
-			path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_GRAF, "8x8.png");
-			use_transparency = FALSE;
-			td->tile.w = td->tile.h = 8;
-			break;
-		}
-
-		case GRAPHICS_ADAM_BOLT:
-		{
-			ANGBAND_GRAF = "new";
-			path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_GRAF, "16x16.png");
-			use_transparency = TRUE;
-			td->tile.w = td->tile.h =16;
-			break;
-		}
-
-		case GRAPHICS_NOMAD:
-		{
-			ANGBAND_GRAF = "nomad";
-			path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_GRAF, "8x16.png");
-			use_transparency = TRUE;
-			td->tile.w = td->tile.h =16;
-			break;
-		}
-
-		case GRAPHICS_DAVID_GERVAIS:
-		{
-			ANGBAND_GRAF = "david";
-			path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_GRAF, "32x32.png");
-			use_transparency = FALSE;
-			td->tile.w = td->tile.h =32;
-			break;
-		}
-	}
+	} while (graphics_modes[i++].grafID != 0);
 
 	/* Free up old graphics */
 	if (graphical_tiles != NULL) cairo_surface_destroy(graphical_tiles);
@@ -1863,7 +1790,6 @@ static void init_gtk_windows(void)
 
 	char buf[1024], logo[1024], temp[20];
 	int i = 0;
-	bool err;
 	
 	/* Build the paths */
 	path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA, GTK_XML); 
@@ -1878,7 +1804,7 @@ static void init_gtk_windows(void)
 	}
 			
 	path_build(logo, sizeof(logo), ANGBAND_DIR_XTRA_ICON, "att-256.png");
-	err = gtk_window_set_default_icon_from_file(logo, NULL);
+	gtk_window_set_default_icon_from_file(logo, NULL);
 	
 	for (i = 0; i < num_term; i++)
 	{
@@ -1958,7 +1884,7 @@ static void init_gtk_windows(void)
 		strnfmt(temp, sizeof(temp), "term_font_%d", i);
 		temp_widget = get_widget(gtk_xml, temp);
 		gtk_widget_realize(temp_widget);
-		err = gtk_font_button_set_font_name(GTK_FONT_BUTTON(temp_widget), td->font.name);
+		gtk_font_button_set_font_name(GTK_FONT_BUTTON(temp_widget), td->font.name);
 		
 		strnfmt(temp, sizeof(temp), "row_%d", i);
 		temp_widget = get_widget(gtk_xml, temp);
@@ -2070,12 +1996,6 @@ static errr term_data_init(term_data *td, int i)
 {
 	term *t = &td->t;
 
-	conv = iconv_open("UTF-8", "ISO-8859-1");
-	if (conv == (iconv_t)(-1)) {
-		printf("iconv_open() failed: %d\n", errno);
-		conv = NULL;
-	}
-
 	td->cols = 80;
 	td->rows = 24;
 
@@ -2100,8 +2020,6 @@ static errr term_data_init(term_data *td, int i)
 	t->wipe_hook = Term_wipe_gtk;
 	t->curs_hook = Term_curs_gtk;
 	t->pict_hook = Term_pict_gtk;
-	if (conv != NULL)
-		t->xchar_hook = Term_xchar_gtk;
 	
 	/* Save the data */
 	t->data = td;
@@ -2115,12 +2033,8 @@ static errr term_data_init(term_data *td, int i)
 
 static errr get_init_cmd(bool wait)
 {
-	Term_fresh();
-
-	/* Prompt the user */
 	prt("[Choose 'New' or 'Open' from the 'File' menu]", 23, 17);
 	CheckEvent(wait);
-
 	return 0;
 }
 
@@ -2175,7 +2089,7 @@ static void text_view_print(xtra_win_data *xd, const char *str, byte color)
 	text_view_put(xd, "\n", color);
 }
 
-void gtk_log_fmt(byte c, cptr fmt, ...)
+void gtk_log_fmt(byte c, const char *fmt, ...)
 {
 	xtra_win_data *xd = &xdata[4];
 	
@@ -2208,7 +2122,7 @@ void gtk_log_fmt(byte c, cptr fmt, ...)
 		plog(str);
 }
 
-static void glog(cptr fmt, ...)
+static void glog(const char *fmt, ...)
 {
 	xtra_win_data *xd = &xdata[4];
 	
@@ -2286,7 +2200,7 @@ static int last_inv_slot(void)
 		o_ptr = &p_ptr->inventory[i];
 
 		/* Skip non-objects */
-		if (!o_ptr->k_idx) continue;
+		if (!o_ptr->kind) continue;
 
 		/* Track */
 		z = i + 1;
@@ -2298,7 +2212,6 @@ static int last_inv_slot(void)
 static void inv_slot(char *str, size_t len, int i, bool equip)
 {
 	object_type *o_ptr;
-	register int n;
 	char o_name[80], label[5];
 	int name_size = 80;
 	
@@ -2312,8 +2225,6 @@ static void inv_slot(char *str, size_t len, int i, bool equip)
 		object_desc(o_name, sizeof(o_name), o_ptr, ODESC_PREFIX | ODESC_FULL);
 			
 		/* Obtain the length of the description */
-		n = strlen(o_name);
-
 		strnfmt(label, sizeof(label), "%c) ", index_to_label(i));
 		
 		if (equip)
@@ -2406,8 +2317,7 @@ static void handle_mons_list(game_event_type type, game_event_data *data, void *
 {
 	xtra_win_data *xd = &xdata[3];
 	int i;
-	int line = 1, x = 0;
-	int cur_x;
+	int line = 1;
 	unsigned total_count = 0, disp_count = 0;
 
 	byte attr;
@@ -2429,9 +2339,9 @@ static void handle_mons_list(game_event_type type, game_event_data *data, void *
 	race_count = C_ZNEW(z_info->r_max, u16b);
 
 	/* Scan the monster list */
-	for (i = 1; i < mon_max; i++)
+	for (i = 1; i < cave_monster_max(cave); i++)
 	{
-		m_ptr = &mon_list[i];
+		m_ptr = cave_monster(cave, i);
 
 		/* Only visible monsters */
 		if (!m_ptr->ml) continue;
@@ -2466,9 +2376,6 @@ static void handle_mons_list(game_event_type type, game_event_data *data, void *
 		/* No monsters of this race are visible */
 		if (!race_count[i]) continue;
 
-		/* Reset position */
-		cur_x = x;
-
 		/* Note that these have been displayed */
 		disp_count += race_count[i];
 
@@ -2499,7 +2406,7 @@ static void handle_mons_list(game_event_type type, game_event_data *data, void *
 	FREE(race_count);
 }
 
-static void draw_xtra_cr_text(xtra_win_data *xd, int x, int y, byte color, cptr str)
+static void draw_xtra_cr_text(xtra_win_data *xd, int x, int y, byte color, const char *str)
 {
 	measurements size;
 	cairo_rectangle_t r;
@@ -2561,12 +2468,10 @@ static void cr_print_equippy(xtra_win_data *xd, int y)
 		/* Object */
 		o_ptr = &p_ptr->inventory[i];
 
-		a = object_attr(o_ptr);
-		strnfmt(c, sizeof(c), "%c",object_char(o_ptr)); 
-
-		/* Clear the part of the screen */
-		if (!o_ptr->k_idx)
-		{
+		if (o_ptr->kind) {
+			a = object_attr(o_ptr);
+			strnfmt(c, sizeof(c), "%c",object_char(o_ptr)); 
+		} else {
 			c [0]= ' ';
 			a = TERM_WHITE;
 		}
@@ -2597,7 +2502,7 @@ static void handle_sidebar(game_event_type type, game_event_data *data, void *us
 	
 	xtra_win_data *xd = &xdata[5];
 	long xp = (long)p_ptr->exp;
-	monster_type *m_ptr = &mon_list[p_ptr->health_who];
+	monster_type *m_ptr = cave_monster(cave, p_ptr->health_who);
 	int i = 0, sidebar_length = 12;
 
 	/* Calculate XP for next level */
@@ -2615,15 +2520,15 @@ static void handle_sidebar(game_event_type type, game_event_data *data, void *us
 		draw_xtra_cr_text(xd, 0, 0, TERM_L_BLUE, str);
 		
 		/* Char Race */
-		strnfmt(str, sizeof(str), "%s", rp_ptr->name);
+		strnfmt(str, sizeof(str), "%s", p_ptr->race->name);
 		draw_xtra_cr_text(xd, 0, 1, TERM_L_BLUE, str);
 		
 		/* Char Title*/
-		strnfmt(str, sizeof(str), "%s", cp_ptr->title[(p_ptr->lev - 1) / 5], TERM_L_BLUE); 
+		strnfmt(str, sizeof(str), "%s", p_ptr->class->title[(p_ptr->lev - 1) / 5], TERM_L_BLUE); 
 		draw_xtra_cr_text(xd, 0, 2, TERM_L_BLUE, str);
 		
 		/* Char Class */
-		strnfmt(str, sizeof(str), "%s", cp_ptr->name); 
+		strnfmt(str, sizeof(str), "%s", p_ptr->class->name); 
 		draw_xtra_cr_text(xd, 0, 3, TERM_L_BLUE, str);
 
 		/* Char Level */
@@ -2660,13 +2565,13 @@ static void handle_sidebar(game_event_type type, game_event_data *data, void *us
 	
 		/* Char HP */
 		strnfmt(str, sizeof(str), "%4d/%4d", p_ptr->chp, p_ptr->mhp); 
-		cr_aligned_text_print(xd, 0, 16, sidebar_text[16], TERM_WHITE, str, player_hp_attr(), sidebar_length);
-		xtra_drawn_progress_bar(xd, 0, 17, p_ptr->chp, p_ptr->mhp, player_hp_attr(), 13);
+		cr_aligned_text_print(xd, 0, 16, sidebar_text[16], TERM_WHITE, str, player_hp_attr(p_ptr), sidebar_length);
+		xtra_drawn_progress_bar(xd, 0, 17, p_ptr->chp, p_ptr->mhp, player_hp_attr(p_ptr), 13);
 	
 		/* Char MP */
 		strnfmt(str, sizeof(str), "%4d/%4d", p_ptr->csp, p_ptr->msp); 
-		cr_aligned_text_print(xd, 0, 18,sidebar_text[18], TERM_WHITE, str, player_sp_attr(), sidebar_length);
-		xtra_drawn_progress_bar(xd, 0, 19, p_ptr->csp, p_ptr->msp, player_sp_attr(), 13);
+		cr_aligned_text_print(xd, 0, 18,sidebar_text[18], TERM_WHITE, str, player_sp_attr(p_ptr), sidebar_length);
+		xtra_drawn_progress_bar(xd, 0, 19, p_ptr->csp, p_ptr->msp, player_sp_attr(p_ptr), 13);
 	
 		/* 20 is blank */
 	
@@ -2751,12 +2656,16 @@ void init_handlers()
 
 errr init_gtk(int argc, char **argv)
 {
-	int i;
+	int i, ok;
 	game_saved = FALSE;
 	toolbar_size = 0;
 	
+	/* Initialize to ASCII tileset (to be overriden by prefs) */
+	arg_graphics = 0;
+
 	/* Initialize the environment */
-	gtk_init(&argc, &argv);
+	ok = gtk_init_check(&argc, &argv);
+	if (ok == FALSE) return -1;
 	
 	/* Parse args */
 	for (i = 1; i < argc; i++)
@@ -2801,6 +2710,9 @@ errr init_gtk(int argc, char **argv)
 
 	/* Init dirs */
 	create_needed_dirs();	
+
+  /* load possible graphics modes */
+  init_graphics_modes("graphics.txt");
 	
 	/* Load Preferences */
 	load_prefs();

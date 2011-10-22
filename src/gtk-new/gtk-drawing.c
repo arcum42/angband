@@ -23,6 +23,7 @@
 
 #include "gtk-term.h"
 #include "cairo.h"
+#include "grafmode.h"
 #include <pango/pangocairo.h>
 
 cairo_surface_t* graphical_tiles;
@@ -47,43 +48,26 @@ cairo_matrix_t cairo_font_scaling(term_data* td)
 	
 	return(m);
 }
-
-struct graphics_table
-{
-	int idx;
-	
-	char name[6];
-	char path[1024];
-	bool transparent;
-	int w;
-	int h;
-};
-
-typedef struct graphics_table graphics_table;
-
-graphics_table g_index[6] =
-{
-	{ GRAPHICS_NONE, "none", "", false, 0, 0 },
-	{ GRAPHICS_ORIGINAL, "old","8x8.png", false, 8, 8 },
-	{ GRAPHICS_ADAM_BOLT, "new", "16x16.png", true, 16, 16 },
-	{ GRAPHICS_DAVID_GERVAIS, "david", "32x32.png", false, 32, 32 },
-	{ GRAPHICS_PSEUDO, "none", "", false, 0, 0 },
-	{ GRAPHICS_NOMAD, "nomad", "8x16.png", true, 16, 16 }
-};
 	
 void set_graphics(int g)
 {
 	char buf[1024];
 	term_data* td = &term_window[0];
+	int i = 0;
 	
-	arg_graphics = g;
-	
-	ANGBAND_GRAF = g_index[g].name;
-	if ((g != GRAPHICS_NONE) && (g != GRAPHICS_PSEUDO)) path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_GRAF, g_index[g].path);
-	use_transparency = g_index[g].transparent;
-	tile_w = g_index[g].w;
-	tile_h = g_index[g].h;
-	printf("Graphics: '%s'.\n", ANGBAND_GRAF);
+	do 
+	{
+		if (g == graphics_modes[i].grafID) 
+		{
+			arg_graphics = g;
+			ANGBAND_GRAF = graphics_modes[i].pref;
+			path_build(buf, sizeof(buf), ANGBAND_DIR_XTRA_GRAF, graphics_modes[i].file);
+			use_transparency = FALSE;
+			tile_w = graphics_modes[i].cell_width;
+			tile_h = graphics_modes[i].cell_height;
+			break;
+		}
+	} while (graphics_modes[i++].grafID != 0);
 
 	/* Free up old graphics */
 	if (graphical_tiles != NULL) cairo_surface_destroy(graphical_tiles);

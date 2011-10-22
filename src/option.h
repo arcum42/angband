@@ -1,11 +1,18 @@
 #ifndef INCLUDED_OPTIONS_H
 #define INCLUDED_OPTIONS_H
 
+/*** Functions ***/
 
+/** Given an option index, return its name */
 const char *option_name(int opt);
+
+/** Given an option index, return its description */
 const char *option_desc(int opt);
 
+/** Set an an option, return TRUE if successful */
 bool option_set(const char *opt, bool on);
+
+/** Reset options to defaults */
 void option_set_defaults(void);
 
 
@@ -59,21 +66,18 @@ extern const int option_page[OPT_PAGE_MAX][OPT_PAGE_PER];
 #define OPT_animate_flicker         15
 #define OPT_center_player			16
 #define OPT_purple_uniques			17
-#define OPT_xchars_to_file			18
-#define OPT_auto_more			19
+#define OPT_auto_more				19
 #define OPT_hp_changes_color		20
-#define OPT_mouse_movement		21
-#define OPT_mouse_buttons		22
+#define OPT_mouse_movement			21
+#define OPT_mouse_buttons			22
 #define OPT_notify_recharge			23
 
-#define OPT_cheat_peek				(OPT_CHEAT+0)
 #define OPT_cheat_hear				(OPT_CHEAT+1)
 #define OPT_cheat_room				(OPT_CHEAT+2)
 #define OPT_cheat_xtra				(OPT_CHEAT+3)
 #define OPT_cheat_know				(OPT_CHEAT+4)
 #define OPT_cheat_live				(OPT_CHEAT+5)
 
-#define OPT_score_peek				(OPT_SCORE+0)
 #define OPT_score_hear				(OPT_SCORE+1)
 #define OPT_score_room				(OPT_SCORE+2)
 #define OPT_score_xtra				(OPT_SCORE+3)
@@ -87,10 +91,10 @@ extern const int option_page[OPT_PAGE_MAX][OPT_PAGE_PER];
 #define OPT_birth_no_artifacts      (OPT_BIRTH+4)
 #define OPT_birth_no_stacking       (OPT_BIRTH+5)
 #define OPT_birth_no_preserve       (OPT_BIRTH+6)
-#define OPT_birth_no_stairs	    (OPT_BIRTH+7)
+#define OPT_birth_no_stairs			(OPT_BIRTH+7)
 #define OPT_birth_no_feelings	    (OPT_BIRTH+8)
 #define OPT_birth_no_selling 	    (OPT_BIRTH+9)
-#define OPT_birth_ai_sound			(OPT_BIRTH+10)
+#define OPT_birth_keep_randarts		(OPT_BIRTH+10)
 #define OPT_birth_ai_smell			(OPT_BIRTH+11)
 #define OPT_birth_ai_packs			(OPT_BIRTH+12)
 #define OPT_birth_ai_learn			(OPT_BIRTH+13)

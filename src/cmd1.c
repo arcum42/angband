@@ -24,7 +24,8 @@
 #include "game-event.h"
 #include "generate.h"
 #include "history.h"
-#include "monster/monster.h"
+#include "monster/mon-timed.h"
+#include "monster/mon-util.h"
 #include "object/inventory.h"
 #include "object/tvalsval.h"
 #include "object/object.h"
@@ -64,7 +65,7 @@ bool search(bool verbose)
 			msg("You can't make out your surroundings well enough to search.");
 
 			/* Cancel repeat */
-			disturb(0, 0);
+			disturb(p_ptr, 0, 0);
 		}
 
 		return FALSE;
@@ -90,7 +91,7 @@ bool search(bool verbose)
 					msg("You have found a trap.");
 
 					/* Disturb */
-					disturb(0, 0);
+					disturb(p_ptr, 0, 0);
 				}
 
 				/* Secret door */
@@ -105,7 +106,7 @@ bool search(bool verbose)
 					place_closed_door(cave, y, x);
 
 					/* Disturb */
-					disturb(0, 0);
+					disturb(p_ptr, 0, 0);
 				}
 
 				/* Scan all objects in the grid */
@@ -132,7 +133,7 @@ bool search(bool verbose)
 						object_notice_everything(o_ptr);
 
 						/* Notice it */
-						disturb(0, 0);
+						disturb(p_ptr, 0, 0);
 					}
 				}
 			}
@@ -180,7 +181,7 @@ static void py_pickup_gold(void)
 	for (this_o_idx = cave->o_idx[py][px]; this_o_idx; this_o_idx = next_o_idx)
 	{
 		/* Get the object */
-		o_ptr = &o_list[this_o_idx];
+		o_ptr = object_byid(this_o_idx);
 
 		/* Get the next object */
 		next_o_idx = o_ptr->next_o_idx;
@@ -208,7 +209,8 @@ static void py_pickup_gold(void)
 	{
 		char buf[1024];
 		char tmp[80];
-		int i, count, total, k_idx;
+		int i, count, total;
+		object_kind *kind;
 
 		/* Build a message */
 		(void)strnfmt(buf, sizeof(buf), "You have found %ld gold pieces worth of ", (long)total_gold);
@@ -226,13 +228,11 @@ static void py_pickup_gold(void)
 			if (!treasure[i]) continue;
 
 			/* Get this object index */
-			k_idx = lookup_kind(TV_GOLD, i);
-
-			/* Skip past errors  XXX */
-			if (k_idx <= 0) continue;
+			kind = lookup_kind(TV_GOLD, i);
+			if (!kind) continue;
 
 			/* Get the object name */
-			object_kind_name(tmp, sizeof tmp, k_idx, TRUE);
+			object_kind_name(tmp, sizeof tmp, kind, TRUE);
 
 			/* Build up the pickup string */
 			my_strcat(buf, tmp, sizeof(buf));
@@ -294,7 +294,7 @@ static void py_pickup_aux(int o_idx, bool domsg)
 	int slot, quiver_slot = 0;
 
 	char o_name[80];
-	object_type *o_ptr = &o_list[o_idx];
+	object_type *o_ptr = object_byid(o_idx);
 
 	/* Carry the object */
 	slot = inven_carry(p_ptr, o_ptr);
@@ -309,7 +309,7 @@ static void py_pickup_aux(int o_idx, bool domsg)
 		int i;
 		for (i = QUIVER_START; i < QUIVER_END; i++) 
 		{
-			if (!p_ptr->inventory[i].k_idx) continue;
+			if (!p_ptr->inventory[i].kind) continue;
 			if (!object_similar(&p_ptr->inventory[i], o_ptr,
 				OSTACK_QUIVER)) continue;
 			quiver_slot = i;
@@ -327,8 +327,8 @@ static void py_pickup_aux(int o_idx, bool domsg)
 	object_sense_artifact(o_ptr);
 
 	/* Log artifacts if found */
-	if (artifact_p(o_ptr))
-		history_add_artifact(o_ptr->name1, object_is_known(o_ptr), TRUE);
+	if (o_ptr->artifact)
+		history_add_artifact(o_ptr->artifact, object_is_known(o_ptr), TRUE);
 
 	/* Optionally, display a message */
 	if (domsg && !quiver_slot)
@@ -340,6 +340,11 @@ static void py_pickup_aux(int o_idx, bool domsg)
 		msg("You have %s (%c).", o_name, index_to_label(slot));
 	}
 
+	/* Update object_idx if necessary */
+	if (tracked_object_is(0 - o_idx))
+	{
+		track_object(slot);
+	}
 
 	/* Delete the object */
 	delete_object_idx(o_idx);
@@ -374,18 +379,18 @@ int do_autopickup(void)
 	for (this_o_idx = cave->o_idx[py][px]; this_o_idx; this_o_idx = next_o_idx)
 	{
 		/* Get the object and the next object */
-		o_ptr = &o_list[this_o_idx];
+		o_ptr = object_byid(this_o_idx);
 		next_o_idx = o_ptr->next_o_idx;
 
 		/* Ignore all hidden objects and non-objects */
-		if (squelch_item_ok(o_ptr) || !o_ptr->k_idx) continue;
+		if (squelch_item_ok(o_ptr) || !o_ptr->kind) continue;
 
 		/* XXX Hack -- Enforce limit */
 		if (floor_num >= N_ELEMENTS(floor_list)) break;
 
 
 		/* Hack -- disturb */
-		disturb(0, 0);
+		disturb(p_ptr, 0, 0);
 
 
 		/* Automatically pick up items into the backpack */
@@ -467,6 +472,9 @@ byte py_pickup(int pickup)
 	/* Objects picked up.  Used to determine time cost of command. */
 	byte objs_picked_up = 0;
 
+	/* Always pickup gold, effortlessly */
+	py_pickup_gold();
+
 	/* Nothing else to pick up -- return */
 	if (!cave->o_idx[py][px]) return objs_picked_up;
 
@@ -474,7 +482,7 @@ byte py_pickup(int pickup)
 	floor_num = scan_floor(floor_list, N_ELEMENTS(floor_list), py, px, 0x03);
 	for (i = 0; i < floor_num; i++)
 	{
-	    can_pickup += inven_carry_okay(&o_list[floor_list[i]]);
+	    can_pickup += inven_carry_okay(object_byid(floor_list[i]));
 	}
 	
 	if (!can_pickup)
@@ -497,7 +505,7 @@ byte py_pickup(int pickup)
 	/* Display a list if requested. */
 	if (pickup == 2)
 	{
-		cptr q, s;
+		const char *q, *s;
 		int item;
 
 		/* Restrict the choices */
@@ -553,14 +561,26 @@ void move_player(int dir, bool disarm)
 	int y = py + ddy[dir];
 	int x = px + ddx[dir];
 
-	/* Attack monsters */
-	if (cave->m_idx[y][x] > 0)
-		py_attack(y, x);
+	int m_idx = cave->m_idx[y][x];
 
-	/* Optionally alter known traps/doors on movement */
+	/* Attack monsters */
+	if (m_idx > 0) {
+		/* Mimics surprise the player */
+		if (is_mimicking(m_idx)) {
+			become_aware(m_idx);
+
+			/* Mimic wakes up */
+			mon_clear_timed(m_idx, MON_TMD_SLEEP, MON_TMD_FLG_NOMESSAGE, FALSE);
+
+		} else {
+			py_attack(y, x);
+		}
+	}
+
+	/* Optionally alter traps/doors on movement */
 	else if (disarm && (cave->info[y][x] & CAVE_MARK) &&
-			(cave->feat[y][x] >= FEAT_TRAP_HEAD) &&
-			(cave->feat[y][x] <= FEAT_DOOR_TAIL))
+			(cave_isknowntrap(cave, y, x) ||
+			cave_iscloseddoor(cave, y, x)))
 	{
 		/* Auto-repeat if not already repeating */
 		if (cmd_get_nrepeats() == 0)
@@ -573,7 +593,7 @@ void move_player(int dir, bool disarm)
 	else if (!cave_floor_bold(y, x))
 	{
 		/* Disturb the player */
-		disturb(0, 0);
+		disturb(p_ptr, 0, 0);
 
 		/* Notice unknown obstacles */
 		if (!(cave->info[y][x] & CAVE_MARK))
@@ -630,7 +650,7 @@ void move_player(int dir, bool disarm)
 		if (OPT(disturb_detect) && p_ptr->running && 
 			!p_ptr->running_firststep && old_dtrap && !new_dtrap)
 		{
-			disturb(0, 0);
+			disturb(p_ptr, 0, 0);
 			return;
 		}
 
@@ -652,7 +672,7 @@ void move_player(int dir, bool disarm)
 			(cave->feat[p_ptr->py][p_ptr->px] <= FEAT_SHOP_TAIL))
 		{
 			/* Disturb */
-			disturb(0, 0);
+			disturb(p_ptr, 0, 0);
 			cmd_insert(CMD_ENTER_STORE);
 		}
 
@@ -668,7 +688,7 @@ void move_player(int dir, bool disarm)
 		if (cave->feat[y][x] == FEAT_INVIS)
 		{
 			/* Disturb */
-			disturb(0, 0);
+			disturb(p_ptr, 0, 0);
 
 			/* Message */
 			msg("You found a trap!");
@@ -681,11 +701,10 @@ void move_player(int dir, bool disarm)
 		}
 
 		/* Set off an visible trap */
-		else if ((cave->feat[y][x] >= FEAT_TRAP_HEAD) &&
-		         (cave->feat[y][x] <= FEAT_TRAP_TAIL))
+		else if (cave_isknowntrap(cave, y, x))
 		{
 			/* Disturb */
-			disturb(0, 0);
+			disturb(p_ptr, 0, 0);
 
 			/* Hit the trap */
 			hit_trap(y, x);

@@ -16,13 +16,14 @@
  *    are included in all such copies.  Other copyrights may also apply.
  */
 #include "angband.h"
+#include "buildid.h"
 
 
 /*
  * Hack -- Link a copyright message into the executable
  */
 const char *copyright =
-	"Copyright (c) 1987-2007 Angband contributors.\n"
+	"Copyright (c) 1987-2011 Angband contributors.\n"
 	"\n"
 	"This work is free software; you can redistribute it and/or modify it\n"
 	"under the terms of either:\n"
@@ -43,6 +44,10 @@ bool arg_rebalance;			/* Command arg -- Rebalance monsters */
 int arg_graphics;			/* Command arg -- Request graphics mode */
 bool arg_graphics_nice;			/* Command arg -- Request nice graphics mode */
 
+#ifdef ALLOW_BORG
+bool screensaver = FALSE;
+#endif /* ALLOW_BORG */
+
 /*
  * Various things
  */
@@ -61,38 +66,21 @@ u32b seed_town;			/* Hack -- consistent town layout */
 
 s16b num_repro;			/* Current reproducer count */
 
-char summon_kin_type;		/* Hack -- See summon_specific() */
-
 s32b turn;				/* Current game turn */
 
 int use_graphics;		/* The "graphics" mode is enabled */
 bool use_graphics_nice;	        /* The 'nice' "graphics" mode is enabled */
-byte tile_width = 1;            /* Tile width in units of font width */
-byte tile_height = 1;           /* Tile height in units of font height */
 
 s16b signal_count;		/* Hack -- Count interrupts */
 
 bool msg_flag;			/* Player has pending message */
 
-bool inkey_base;		/* See the "inkey()" function */
 bool inkey_xtra;		/* See the "inkey()" function */
 u32b inkey_scan;		/* See the "inkey()" function */
 bool inkey_flag;		/* See the "inkey()" function */
 
-bool opening_chest;		/* Hack -- prevent chest generation */
-
-bool shimmer_monsters;	/* Hack -- optimize multi-hued monsters */
-bool shimmer_objects;	/* Hack -- optimize multi-hued objects */
-
-bool repair_mflag_nice;	/* Hack -- repair monster flags (nice) */
-bool repair_mflag_show;	/* Hack -- repair monster flags (show) */
-bool repair_mflag_mark;	/* Hack -- repair monster flags (mark) */
-
 s16b o_max = 1;			/* Number of allocated objects */
 s16b o_cnt = 0;			/* Number of live objects */
-
-s16b mon_max = 1;	/* Number of allocated monsters */
-s16b mon_cnt = 0;	/* Number of live monsters */
 
 /*
  * Buffer to hold the current savefile name
@@ -256,7 +244,7 @@ color_type color_table[MAX_COLORS] =
 /*
  * Standard sound (and message) names
  */
-const cptr angband_sound_name[MSG_MAX] =
+const const char *angband_sound_name[MSG_MAX] =
 {
 	"",
 	"hit",
@@ -323,6 +311,7 @@ const cptr angband_sound_name[MSG_MAX] =
 	"blessed", 
 	"hero", 
 	"berserk", 
+	"bold", 
 	"prot_evil", 
 	"invuln", 
 	"see_invis", 
@@ -369,7 +358,7 @@ const cptr angband_sound_name[MSG_MAX] =
 	"breathe_plasma", 
 	"breathe_force", 
 	"summon_monster", 
-	"summon_angel", 
+	"summon_ainu",
 	"summon_undead", 
 	"summon_animal", 
 	"summon_spider", 
@@ -410,37 +399,10 @@ const cptr angband_sound_name[MSG_MAX] =
 	"multiply"
 };
 
-
-/*
- * Array[VIEW_MAX] used by "update_view()"
- */
-int view_n = 0;
-u16b *view_g;
-
 /*
  * Arrays[TEMP_MAX] used for various things
- *
- * Note that temp_g shares memory with temp_x and temp_y.
  */
-int temp_n = 0;
 u16b *temp_g;
-byte *temp_y;
-byte *temp_x;
-
-/*
- * Array[z_info->o_max] of dungeon objects
- */
-object_type *o_list;
-
-/*
- * Array[z_info->m_max] of dungeon monsters
- */
-monster_type *mon_list;
-
-/*
- * Total monster power
- */
-s32b tot_mon_power;
 
 /*
  * Array[z_info->r_max] of monster lore
@@ -457,7 +419,7 @@ quest *q_list;
 /*
  * Array[MAX_STORES] of stores
  */
-store_type *store;
+struct store *stores;
 
 /*
  * Flag to override which store is selected if in a knowledge menu
@@ -467,7 +429,7 @@ int store_knowledge = STORE_NONE;
 /*
  * Array[RANDNAME_NUM_TYPES][num_names] of random names
  */
-cptr** name_sections;
+const char *** name_sections;
 
 /*
  * The size of the "alloc_ego_table"
@@ -492,11 +454,10 @@ alloc_entry *alloc_race_table;
 
 
 /*
- * Specify attr/char pairs for visual special effects
- * Be sure to use "index & 0xff" to avoid illegal access
+ * Specify attr/char pairs for visual special effects for project()
  */
-byte misc_to_attr[256];
-char misc_to_char[256];
+byte gf_to_attr[GF_MAX][BOLT_MAX];
+wchar_t gf_to_char[GF_MAX][BOLT_MAX];
 
 
 /*
@@ -506,28 +467,9 @@ char misc_to_char[256];
 byte tval_to_attr[128];
 
 
-/*
- * Current (or recent) macro action
- */
-char macro_buffer[1024];
-
-
-/*
- * Keymaps for each "mode" associated with each keypress.
- */
-char *keymap_act[KEYMAP_MODES][256];
-
 
 
 /*** Player information ***/
-
-/*
- * Pointer to the player tables (sex, race, class, magic)
- */
-const player_sex *sp_ptr;
-const player_race *rp_ptr;
-const player_class *cp_ptr;
-const player_magic *mp_ptr;
 
 /*
  * The player other record (static)
@@ -561,6 +503,7 @@ maxima *z_info;
 feature_type *f_info;
 
 object_kind *k_info;
+object_base *kb_info;
 
 /*
  * The artifact arrays
@@ -576,13 +519,13 @@ ego_item_type *e_info;
  * The monster race arrays
  */
 monster_race *r_info;
+monster_base *rb_info;
+monster_pain *pain_messages;
 
 struct player_race *races;
 struct player_class *classes;
 struct vault *vaults;
 struct object_kind *objkinds;
-
-owner_type *b_info;
 
 struct flavor *flavors;
 
@@ -596,6 +539,11 @@ spell_type *s_info;
  */
 struct hint *hints;
 
+/*
+ * Array of pit types
+ */
+struct pit_profile *pit_info;
+ 
 /*
  * Hack -- The special Angband "System Suffix"
  * This variable is used to choose an appropriate "pref-xxx" file
@@ -627,7 +575,6 @@ char *ANGBAND_DIR_XTRA;
 char *ANGBAND_DIR_XTRA_FONT;
 char *ANGBAND_DIR_XTRA_GRAF;
 char *ANGBAND_DIR_XTRA_SOUND;
-char *ANGBAND_DIR_XTRA_HELP;
 char *ANGBAND_DIR_XTRA_ICON;
 
 /*
@@ -660,13 +607,6 @@ bool (*get_mon_num_hook)(int r_idx);
 
 
 /*
- * Hack -- function hook to restrict "get_obj_num_prep()" function
- */
-bool (*get_obj_num_hook)(int k_idx);
-
-
-
-/*
  * Hack - the destination file for text_out_to_file.
  */
 ang_file *text_out_file = NULL;
@@ -676,7 +616,7 @@ ang_file *text_out_file = NULL;
  * Hack -- function hook to output (colored) text to the
  * screen or to a file.
  */
-void (*text_out_hook)(byte a, cptr str);
+void (*text_out_hook)(byte a, const char *str);
 
 
 /*
@@ -716,3 +656,4 @@ u16b lazymove_delay = 0;
 /* Number of days passed on the current dungeon trip -
   - used for determining store updates on return to town */
 u16b daycount = 0;
+

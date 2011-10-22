@@ -1,6 +1,6 @@
 /*
  * File: load.c
- * Purpose: Old-style savefile loading
+ * Purpose: Savefile loading functions
  *
  * Copyright (c) 1997 Ben Harrison, and others
  *
@@ -19,27 +19,42 @@
 #include "angband.h"
 #include "cave.h"
 #include "history.h"
-#include "monster/monster.h"
+#include "monster/mon-make.h"
+#include "monster/mon-spell.h"
 #include "object/tvalsval.h"
 #include "savefile.h"
 #include "squelch.h"
 
-/*
- * Read an object, version 2
- *
- * This function attempts to "repair" old savefiles, and to extract
- * the most up to date values for various object fields.
+/* Shorthand function pointer for rd_item version */
+typedef int (*rd_item_t)(object_type *o_ptr);
+
+/**
+ * Find an ego item from its index
  */
-static int rd_item_2(object_type *o_ptr)
+static struct ego_item *lookup_ego(int idx)
 {
-	byte old_dd;
-	byte old_ds;
+	if (idx > 0 && idx < z_info->e_max)
+		return &e_info[idx];
+
+	return NULL;
+}
+
+
+/*
+ * Read an object, version 4 (added mimicking_o_idx)
+ *
+ * This function no longer attempts to "repair" old savefiles - the info
+ * held in o_ptr is now authoritative.
+ */
+static int rd_item_4(object_type *o_ptr)
+{
 	byte tmp8u;
 	u16b tmp16u;
 
-	size_t i, j;
+	byte ego_idx;
+	byte art_idx;
 
-	object_kind *k_ptr;
+	size_t i, j;
 
 	char buf[128];
 
@@ -49,12 +64,7 @@ static int rd_item_2(object_type *o_ptr)
 	rd_byte(&ver);
 	assert(tmp16u == 0xffff);
 
-	rd_s16b(&o_ptr->k_idx);
-
-	/* Paranoia */
-	if ((o_ptr->k_idx < 0) || (o_ptr->k_idx >= z_info->k_max))
-		return (-1);
-	o_ptr->kind = &k_info[o_ptr->k_idx];
+	strip_bytes(2);
 
 	/* Location */
 	rd_byte(&o_ptr->iy);
@@ -74,8 +84,118 @@ static int rd_item_2(object_type *o_ptr)
 	rd_byte(&o_ptr->number);
 	rd_s16b(&o_ptr->weight);
 
-	rd_byte(&o_ptr->name1);
-	rd_byte(&o_ptr->name2);
+	rd_byte(&art_idx);
+	rd_byte(&ego_idx);
+
+	rd_s16b(&o_ptr->timeout);
+
+	rd_s16b(&o_ptr->to_h);
+	rd_s16b(&o_ptr->to_d);
+	rd_s16b(&o_ptr->to_a);
+
+	rd_s16b(&o_ptr->ac);
+
+	rd_byte(&o_ptr->dd);
+	rd_byte(&o_ptr->ds);
+
+	rd_u16b(&o_ptr->ident);
+
+	rd_byte(&o_ptr->marked);
+
+	rd_byte(&o_ptr->origin);
+	rd_byte(&o_ptr->origin_depth);
+	rd_u16b(&o_ptr->origin_xtra);
+
+	for (i = 0; i < OF_BYTES && i < OF_SIZE; i++)
+		rd_byte(&o_ptr->flags[i]);
+	if (i < OF_BYTES) strip_bytes(OF_BYTES - i);
+
+	of_wipe(o_ptr->known_flags);
+
+	for (i = 0; i < OF_BYTES && i < OF_SIZE; i++)
+		rd_byte(&o_ptr->known_flags[i]);
+	if (i < OF_BYTES) strip_bytes(OF_BYTES - i);
+
+	for (j = 0; j < MAX_PVALS; j++) {
+		for (i = 0; i < OF_BYTES && i < OF_SIZE; i++)
+			rd_byte(&o_ptr->pval_flags[j][i]);
+		if (i < OF_BYTES) strip_bytes(OF_BYTES - i);
+	}
+
+	/* Monster holding object */
+	rd_s16b(&o_ptr->held_m_idx);
+
+	rd_s16b(&o_ptr->mimicking_m_idx);
+
+	/* Save the inscription */
+	rd_string(buf, sizeof(buf));
+	if (buf[0]) o_ptr->note = quark_add(buf);
+
+
+	/* Lookup item kind */
+	o_ptr->kind = lookup_kind(o_ptr->tval, o_ptr->sval);
+	if (!o_ptr->kind)
+		return 0;
+
+	o_ptr->ego = lookup_ego(ego_idx);
+
+	if (art_idx >= z_info->a_max)
+		return -1;
+	if (art_idx > 0)
+		o_ptr->artifact = &a_info[art_idx];
+
+	/* Success */
+	return (0);
+}
+
+/*
+ * Read an object, version 3
+ *
+ * This function attempts to "repair" old savefiles, and to extract
+ * the most up to date values for various object fields.
+ */
+static int rd_item_3(object_type *o_ptr)
+{
+	byte old_dd;
+	byte old_ds;
+	byte tmp8u;
+	u16b tmp16u;
+
+	byte ego_idx;
+	byte art_idx;
+
+	size_t i, j;
+
+	char buf[128];
+
+	byte ver = 1;
+
+	rd_u16b(&tmp16u);
+	rd_byte(&ver);
+	assert(tmp16u == 0xffff);
+
+	strip_bytes(2);
+
+	/* Location */
+	rd_byte(&o_ptr->iy);
+	rd_byte(&o_ptr->ix);
+
+	/* Type/Subtype */
+	rd_byte(&o_ptr->tval);
+	rd_byte(&o_ptr->sval);
+	for (i = 0; i < MAX_PVALS; i++) {
+		rd_s16b(&o_ptr->pval[i]);
+	}
+	rd_byte(&o_ptr->num_pvals);
+
+	/* Pseudo-ID bit */
+	rd_byte(&tmp8u);
+
+	rd_byte(&o_ptr->number);
+	rd_s16b(&o_ptr->weight);
+
+	rd_byte(&art_idx);
+	rd_byte(&ego_idx);
 
 	rd_s16b(&o_ptr->timeout);
 
@@ -100,7 +220,175 @@ static int rd_item_2(object_type *o_ptr)
 		rd_byte(&o_ptr->flags[i]);
 	if (i < OF_BYTES) strip_bytes(OF_BYTES - i);
 
-	memset(&o_ptr->known_flags, 0, sizeof(o_ptr->known_flags));
+	of_wipe(o_ptr->known_flags);
+
+	for (i = 0; i < OF_BYTES && i < OF_SIZE; i++)
+		rd_byte(&o_ptr->known_flags[i]);
+	if (i < OF_BYTES) strip_bytes(OF_BYTES - i);
+
+	for (j = 0; j < MAX_PVALS; j++) {
+		for (i = 0; i < OF_BYTES && i < OF_SIZE; i++)
+			rd_byte(&o_ptr->pval_flags[j][i]);
+		if (i < OF_BYTES) strip_bytes(OF_BYTES - i);
+	}
+
+	/* Monster holding object */
+	rd_s16b(&o_ptr->held_m_idx);
+	
+	/* Save the inscription */
+	rd_string(buf, sizeof(buf));
+	if (buf[0]) o_ptr->note = quark_add(buf);
+
+
+	/* Lookup item kind */
+	o_ptr->kind = lookup_kind(o_ptr->tval, o_ptr->sval);
+	if (!o_ptr->kind)
+		return 0;
+
+	o_ptr->ego = lookup_ego(ego_idx);
+
+	if (art_idx >= z_info->a_max)
+		return -1;
+	if (art_idx > 0)
+		o_ptr->artifact = &a_info[art_idx];
+
+	/* Repair non "wearable" items */
+	if (!wearable_p(o_ptr))
+	{
+		/* Get the correct fields */
+		if (!randcalc_valid(o_ptr->kind->to_h, o_ptr->to_h))
+			o_ptr->to_h = randcalc(o_ptr->kind->to_h, o_ptr->origin_depth, RANDOMISE);
+		if (!randcalc_valid(o_ptr->kind->to_d, o_ptr->to_d))
+			o_ptr->to_d = randcalc(o_ptr->kind->to_d, o_ptr->origin_depth, RANDOMISE);
+		if (!randcalc_valid(o_ptr->kind->to_a, o_ptr->to_a))
+			o_ptr->to_a = randcalc(o_ptr->kind->to_a, o_ptr->origin_depth, RANDOMISE);
+
+		/* Get the correct fields */
+		o_ptr->ac = o_ptr->kind->ac;
+		o_ptr->dd = o_ptr->kind->dd;
+		o_ptr->ds = o_ptr->kind->ds;
+
+		/* Get the correct weight */
+		o_ptr->weight = o_ptr->kind->weight;
+
+		/* All done */
+		return (0);
+	}
+
+
+	/* Get the standard fields */
+	o_ptr->ac = o_ptr->kind->ac;
+	o_ptr->dd = o_ptr->kind->dd;
+	o_ptr->ds = o_ptr->kind->ds;
+
+	/* Get the standard weight */
+	o_ptr->weight = o_ptr->kind->weight;
+
+	/* Artifacts */
+	if (o_ptr->artifact)
+	{
+	        /* Get the new artifact "pvals" */
+	        for (i = 0; i < MAX_PVALS; i++)
+	                o_ptr->pval[i] = o_ptr->artifact->pval[i];
+	        o_ptr->num_pvals = o_ptr->artifact->num_pvals;
+
+	        /* Get the new artifact fields */
+	        o_ptr->ac = o_ptr->artifact->ac;
+	        o_ptr->dd = o_ptr->artifact->dd;
+	        o_ptr->ds = o_ptr->artifact->ds;
+
+	        /* Get the new artifact weight */
+	        o_ptr->weight = o_ptr->artifact->weight;
+	}
+
+	/* Ego items */
+	if (o_ptr->ego)	{
+        /* Hack -- keep some old fields */
+        if ((o_ptr->dd < old_dd) && (o_ptr->ds == old_ds))
+			/* Keep old boosted damage dice */
+			o_ptr->dd = old_dd;
+
+		ego_min_pvals(o_ptr);
+	}
+
+	/* Success */
+	return (0);
+}
+
+/*
+ * Read an object, version 2 - remove after 3.3
+ *
+ * This function attempts to "repair" old savefiles, and to extract
+ * the most up to date values for various object fields. It also copies flags
+ * and pval_flags properly, now that they are canonical.
+ */
+static int rd_item_2(object_type *o_ptr)
+{
+	byte old_dd;
+	byte old_ds;
+	byte tmp8u;
+	u16b tmp16u;
+
+	byte ego_idx;
+	byte art_idx;
+
+	size_t i, j;
+
+	char buf[128];
+
+	byte ver = 1;
+
+	rd_u16b(&tmp16u);
+	rd_byte(&ver);
+	assert(tmp16u == 0xffff);
+
+	strip_bytes(2);
+
+	/* Location */
+	rd_byte(&o_ptr->iy);
+	rd_byte(&o_ptr->ix);
+
+	/* Type/Subtype */
+	rd_byte(&o_ptr->tval);
+	rd_byte(&o_ptr->sval);
+	for (i = 0; i < MAX_PVALS; i++) {
+		rd_s16b(&o_ptr->pval[i]);
+	}
+	rd_byte(&o_ptr->num_pvals);
+
+	/* Pseudo-ID bit */
+	rd_byte(&tmp8u);
+
+	rd_byte(&o_ptr->number);
+	rd_s16b(&o_ptr->weight);
+
+	rd_byte(&art_idx);
+	rd_byte(&ego_idx);
+
+	rd_s16b(&o_ptr->timeout);
+
+	rd_s16b(&o_ptr->to_h);
+	rd_s16b(&o_ptr->to_d);
+	rd_s16b(&o_ptr->to_a);
+
+	rd_s16b(&o_ptr->ac);
+
+	rd_byte(&old_dd);
+	rd_byte(&old_ds);
+
+	rd_u16b(&o_ptr->ident);
+
+	rd_byte(&o_ptr->marked);
+
+	rd_byte(&o_ptr->origin);
+	rd_byte(&o_ptr->origin_depth);
+	rd_u16b(&o_ptr->origin_xtra);
+
+	for (i = 0; i < OF_BYTES && i < OF_SIZE; i++)
+		rd_byte(&o_ptr->flags[i]);
+	if (i < OF_BYTES) strip_bytes(OF_BYTES - i);
+
+	of_wipe(o_ptr->known_flags);
 
 	for (i = 0; i < OF_BYTES && i < OF_SIZE; i++)
 		rd_byte(&o_ptr->known_flags[i]);
@@ -115,142 +403,73 @@ static int rd_item_2(object_type *o_ptr)
 	/* Monster holding object */
 	rd_s16b(&o_ptr->held_m_idx);
 
-	rd_string(buf, sizeof(buf));
-
 	/* Save the inscription */
-	if (buf[0]) o_ptr->note = string_make(buf);
+	rd_string(buf, sizeof(buf));
+	if (buf[0]) o_ptr->note = quark_add(buf);
 
 
 	/* Lookup item kind */
-	o_ptr->k_idx = lookup_kind(o_ptr->tval, o_ptr->sval);
-	assert(o_ptr->k_idx);	/* XXX-elly: handle nonfatally */
-
-	k_ptr = &k_info[o_ptr->k_idx];
-
-	/* Return now in case of "blank" or "empty" objects */
-	if (!k_ptr->name || !o_ptr->k_idx)
-	{
-		o_ptr->k_idx = 0;
+	o_ptr->kind = lookup_kind(o_ptr->tval, o_ptr->sval);
+	if (!o_ptr->kind)
 		return 0;
-	}
 
+	o_ptr->ego = lookup_ego(ego_idx);
+
+	if (art_idx >= z_info->a_max)
+		return -1;
+	if (art_idx > 0)
+		o_ptr->artifact = &a_info[art_idx];
 
 	/* Repair non "wearable" items */
 	if (!wearable_p(o_ptr))
 	{
 		/* Get the correct fields */
-		if (!randcalc_valid(k_ptr->to_h, o_ptr->to_h))
-			o_ptr->to_h = randcalc(k_ptr->to_h, o_ptr->origin_depth, RANDOMISE);
-		if (!randcalc_valid(k_ptr->to_d, o_ptr->to_d))
-			o_ptr->to_d = randcalc(k_ptr->to_d, o_ptr->origin_depth, RANDOMISE);
-		if (!randcalc_valid(k_ptr->to_a, o_ptr->to_a))
-			o_ptr->to_a = randcalc(k_ptr->to_a, o_ptr->origin_depth, RANDOMISE);
-
-		/* Get the correct fields */
-		o_ptr->ac = k_ptr->ac;
-		o_ptr->dd = k_ptr->dd;
-		o_ptr->ds = k_ptr->ds;
-
-		/* Get the correct weight */
-		o_ptr->weight = k_ptr->weight;
-
-		/* Paranoia */
-		o_ptr->name1 = o_ptr->name2 = 0;
-
-		/* All done */
-		return (0);
+		if (!randcalc_valid(o_ptr->kind->to_h, o_ptr->to_h))
+			o_ptr->to_h = randcalc(o_ptr->kind->to_h, o_ptr->origin_depth, RANDOMISE);
+		if (!randcalc_valid(o_ptr->kind->to_d, o_ptr->to_d))
+			o_ptr->to_d = randcalc(o_ptr->kind->to_d, o_ptr->origin_depth, RANDOMISE);
+		if (!randcalc_valid(o_ptr->kind->to_a, o_ptr->to_a))
+			o_ptr->to_a = randcalc(o_ptr->kind->to_a, o_ptr->origin_depth, RANDOMISE);
 	}
 
-
-
-	/* Paranoia */
-	if (o_ptr->name1)
-	{
-		artifact_type *a_ptr;
-
-		/* Paranoia */
-		if (o_ptr->name1 >= z_info->a_max) return (-1);
-
-		/* Obtain the artifact info */
-		a_ptr = &a_info[o_ptr->name1];
-
-		/* Verify that artifact */
-		if (!a_ptr->name) o_ptr->name1 = 0;
-	}
-
-	/* Paranoia */
-	if (o_ptr->name2)
-	{
-		ego_item_type *e_ptr;
-
-		/* Paranoia */
-		if (o_ptr->name2 >= z_info->e_max) return (-1);
-
-		/* Obtain the ego-item info */
-		e_ptr = &e_info[o_ptr->name2];
-
-		/* Verify that ego-item */
-		if (!e_ptr->name) o_ptr->name2 = 0;
-	}
-
-
-	/* Get the standard fields */
-	o_ptr->ac = k_ptr->ac;
-	o_ptr->dd = k_ptr->dd;
-	o_ptr->ds = k_ptr->ds;
-
-	/* Get the standard weight */
-	o_ptr->weight = k_ptr->weight;
-
+	/* Get the standard fields and flags*/
+	o_ptr->ac = o_ptr->kind->ac;
+	o_ptr->dd = o_ptr->kind->dd;
+	o_ptr->ds = o_ptr->kind->ds;
+	o_ptr->weight = o_ptr->kind->weight;
+	of_union(o_ptr->flags, o_ptr->kind->base->flags);
+	of_union(o_ptr->flags, o_ptr->kind->flags);
+	for (i = 0; i < o_ptr->kind->num_pvals; i++)
+		of_union(o_ptr->pval_flags[i], o_ptr->kind->pval_flags[i]);
 
 	/* Artifacts */
-	if (o_ptr->name1)
-	{
-		artifact_type *a_ptr;
-
-		/* Obtain the artifact info */
-		a_ptr = &a_info[o_ptr->name1];
-
-		/* Get the new artifact "pvals" */
-		for (i = 0; i < MAX_PVALS; i++)
-			o_ptr->pval[i] = a_ptr->pval[i];
-		o_ptr->num_pvals = a_ptr->num_pvals;
-
-		/* Get the new artifact fields */
-		o_ptr->ac = a_ptr->ac;
-		o_ptr->dd = a_ptr->dd;
-		o_ptr->ds = a_ptr->ds;
-
-		/* Get the new artifact weight */
-		o_ptr->weight = a_ptr->weight;
-	}
+	if (o_ptr->artifact)
+		copy_artifact_data(o_ptr, o_ptr->artifact);
 
 	/* Ego items */
-	if (o_ptr->name2)
-	{
-		ego_item_type *e_ptr;
+	if (o_ptr->ego)	{
+		bitflag pval_mask[OF_SIZE];
 
-		/* Obtain the ego-item info */
-		e_ptr = &e_info[o_ptr->name2];
+		of_union(o_ptr->flags, o_ptr->ego->flags);
 
-		/* Hack -- keep some old fields */
-		if ((o_ptr->dd < old_dd) && (o_ptr->ds == old_ds))
-		{
+        /* Hack -- keep some old fields */
+        if ((o_ptr->dd < old_dd) && (o_ptr->ds == old_ds))
 			/* Keep old boosted damage dice */
 			o_ptr->dd = old_dd;
-		}
 
-		/* Hack -- enforce legal pval */
-		for (i = 0; i < MAX_PVALS; i++) {
-			if (flags_test(e_ptr->pval_flags[i], OF_SIZE,
-				OF_PVAL_MASK, FLAG_END))
+		create_mask(pval_mask, FALSE, OFT_PVAL, OFT_STAT, OFT_MAX);
 
-				/* Force a meaningful pval */
+        /* Hack -- enforce legal pval, and apply pval flags */
+        for (i = 0; i < MAX_PVALS; i++) {
+			if (of_is_inter(o_ptr->ego->pval_flags[i], pval_mask)) {
+
+				of_union(o_ptr->pval_flags[i], o_ptr->ego->pval_flags[i]);
+
 				if (!o_ptr->pval[i])
-					o_ptr->pval[i] = e_ptr->min_pval[i];
+					o_ptr->pval[i] = o_ptr->ego->min_pval[i];
+			}
 		}
 	}
-
 
 	/* Success */
 	return (0);
@@ -266,9 +485,10 @@ static int rd_item_1(object_type *o_ptr)
 	byte tmp8u;
 	u16b tmp16u;
 
-	size_t i;
+	byte art_idx;
+	byte ego_idx;
 
-	object_kind *k_ptr;
+	size_t i;
 
 	char buf[128];
 
@@ -278,12 +498,8 @@ static int rd_item_1(object_type *o_ptr)
 	rd_byte(&ver);
 	assert(tmp16u == 0xffff);
 
-	rd_s16b(&o_ptr->k_idx);
 
-	/* Paranoia */
-	if ((o_ptr->k_idx < 0) || (o_ptr->k_idx >= z_info->k_max))
-		return (-1);
-	o_ptr->kind = &k_info[o_ptr->k_idx];
+	strip_bytes(2);
 
 	/* Location */
 	rd_byte(&o_ptr->iy);
@@ -294,14 +510,19 @@ static int rd_item_1(object_type *o_ptr)
 	rd_byte(&o_ptr->sval);
 	rd_s16b(&o_ptr->pval[DEFAULT_PVAL]);
 
+	if (o_ptr->pval[DEFAULT_PVAL])
+		o_ptr->num_pvals = 1;
+	else
+		o_ptr->num_pvals = 0;
+
 	/* Pseudo-ID bit */
 	rd_byte(&tmp8u);
 
 	rd_byte(&o_ptr->number);
 	rd_s16b(&o_ptr->weight);
 
-	rd_byte(&o_ptr->name1);
-	rd_byte(&o_ptr->name2);
+	rd_byte(&art_idx);
+	rd_byte(&ego_idx);
 
 	rd_s16b(&o_ptr->timeout);
 
@@ -326,9 +547,8 @@ static int rd_item_1(object_type *o_ptr)
 	for (i = 0; i < 12 && i < OF_SIZE; i++)
 		rd_byte(&o_ptr->flags[i]);
 	if (i < 12) strip_bytes(12 - i);
-	
 
-	memset(&o_ptr->known_flags, 0, sizeof(o_ptr->known_flags));
+	of_wipe(o_ptr->known_flags);
 
 	/* Hack - XXX - MarbleDice - Maximum saveable flags = 96 */
 	for (i = 0; i < 12 && i < OF_SIZE; i++)
@@ -342,140 +562,70 @@ static int rd_item_1(object_type *o_ptr)
 	rd_string(buf, sizeof(buf));
 
 	/* Save the inscription */
-	if (buf[0]) o_ptr->note = string_make(buf);
+	if (buf[0]) o_ptr->note = quark_add(buf);
 
 
-	/* Lookup item kind */
-	o_ptr->k_idx = lookup_kind(o_ptr->tval, o_ptr->sval);
-	assert(o_ptr->k_idx);	/* XXX-elly: handle nonfatally */
-
-	k_ptr = &k_info[o_ptr->k_idx];
-
-	/* Return now in case of "blank" or "empty" objects */
-	if (!k_ptr->name || !o_ptr->k_idx)
-	{
-		o_ptr->k_idx = 0;
+	o_ptr->kind = lookup_kind(o_ptr->tval, o_ptr->sval);
+	if (!o_ptr->kind)
 		return 0;
-	}
 
-	/* Copy flags into pval_flags to ensure pvals function */
-	if (o_ptr->pval) {
-		of_copy(o_ptr->pval_flags[DEFAULT_PVAL], o_ptr->flags);
-		o_ptr->num_pvals = 1;
-	}
+	o_ptr->ego = lookup_ego(ego_idx);
+
+	if (art_idx >= z_info->a_max)
+		return -1;
+	if (art_idx > 0)
+		o_ptr->artifact = &a_info[art_idx];
 
 	/* Repair non "wearable" items */
 	if (!wearable_p(o_ptr))
 	{
 		/* Get the correct fields */
-		if (!randcalc_valid(k_ptr->to_h, o_ptr->to_h))
-			o_ptr->to_h = randcalc(k_ptr->to_h, o_ptr->origin_depth, RANDOMISE);
-		if (!randcalc_valid(k_ptr->to_d, o_ptr->to_d))
-			o_ptr->to_d = randcalc(k_ptr->to_d, o_ptr->origin_depth, RANDOMISE);
-		if (!randcalc_valid(k_ptr->to_a, o_ptr->to_a))
-			o_ptr->to_a = randcalc(k_ptr->to_a, o_ptr->origin_depth, RANDOMISE);
-
-		/* Get the correct fields */
-		o_ptr->ac = k_ptr->ac;
-		o_ptr->dd = k_ptr->dd;
-		o_ptr->ds = k_ptr->ds;
-
-		/* Get the correct weight */
-		o_ptr->weight = k_ptr->weight;
-
-		/* Paranoia */
-		o_ptr->name1 = o_ptr->name2 = 0;
-
-		/* All done */
-		return (0);
+		if (!randcalc_valid(o_ptr->kind->to_h, o_ptr->to_h))
+			o_ptr->to_h = randcalc(o_ptr->kind->to_h, o_ptr->origin_depth, RANDOMISE);
+		if (!randcalc_valid(o_ptr->kind->to_d, o_ptr->to_d))
+			o_ptr->to_d = randcalc(o_ptr->kind->to_d, o_ptr->origin_depth, RANDOMISE);
+		if (!randcalc_valid(o_ptr->kind->to_a, o_ptr->to_a))
+			o_ptr->to_a = randcalc(o_ptr->kind->to_a, o_ptr->origin_depth, RANDOMISE);
 	}
 
-
-
-	/* Paranoia */
-	if (o_ptr->name1)
-	{
-		artifact_type *a_ptr;
-
-		/* Paranoia */
-		if (o_ptr->name1 >= z_info->a_max) return (-1);
-
-		/* Obtain the artifact info */
-		a_ptr = &a_info[o_ptr->name1];
-
-		/* Verify that artifact */
-		if (!a_ptr->name) o_ptr->name1 = 0;
-	}
-
-	/* Paranoia */
-	if (o_ptr->name2)
-	{
-		ego_item_type *e_ptr;
-
-		/* Paranoia */
-		if (o_ptr->name2 >= z_info->e_max) return (-1);
-
-		/* Obtain the ego-item info */
-		e_ptr = &e_info[o_ptr->name2];
-
-		/* Verify that ego-item */
-		if (!e_ptr->name) o_ptr->name2 = 0;
-	}
-
-
-	/* Get the standard fields */
-	o_ptr->ac = k_ptr->ac;
-	o_ptr->dd = k_ptr->dd;
-	o_ptr->ds = k_ptr->ds;
-
-	/* Get the standard weight */
-	o_ptr->weight = k_ptr->weight;
-
+	/* Get the standard fields and flags*/
+	o_ptr->ac = o_ptr->kind->ac;
+	o_ptr->dd = o_ptr->kind->dd;
+	o_ptr->ds = o_ptr->kind->ds;
+	o_ptr->weight = o_ptr->kind->weight;
+	of_union(o_ptr->flags, o_ptr->kind->base->flags);
+	of_union(o_ptr->flags, o_ptr->kind->flags);
+	for (i = 0; i < o_ptr->kind->num_pvals; i++)
+		of_union(o_ptr->pval_flags[DEFAULT_PVAL], o_ptr->kind->pval_flags[i]);
 
 	/* Artifacts */
-	if (o_ptr->name1)
-	{
-		artifact_type *a_ptr;
-
-		/* Obtain the artifact info */
-		a_ptr = &a_info[o_ptr->name1];
-
-		/* Get the new artifact "pval" */
-		o_ptr->pval[DEFAULT_PVAL] = a_ptr->pval[DEFAULT_PVAL];
-
-		/* Get the new artifact fields */
-		o_ptr->ac = a_ptr->ac;
-		o_ptr->dd = a_ptr->dd;
-		o_ptr->ds = a_ptr->ds;
-
-		/* Get the new artifact weight */
-		o_ptr->weight = a_ptr->weight;
-	}
+	if (o_ptr->artifact)
+		copy_artifact_data(o_ptr, o_ptr->artifact);
 
 	/* Ego items */
-	if (o_ptr->name2)
-	{
-		ego_item_type *e_ptr;
+	if (o_ptr->ego)	{
+		bitflag pval_mask[OF_SIZE];
 
-		/* Obtain the ego-item info */
-		e_ptr = &e_info[o_ptr->name2];
+		of_union(o_ptr->flags, o_ptr->ego->flags);
 
-		/* Hack -- keep some old fields */
-		if ((o_ptr->dd < old_dd) && (o_ptr->ds == old_ds))
-		{
+        /* Hack -- keep some old fields */
+        if ((o_ptr->dd < old_dd) && (o_ptr->ds == old_ds))
 			/* Keep old boosted damage dice */
 			o_ptr->dd = old_dd;
-		}
 
-		/* Hack -- enforce legal pval */
-		if (flags_test(e_ptr->flags, OF_SIZE, OF_PVAL_MASK, FLAG_END))
-		{
-			/* Force a meaningful pval */
-			if (!o_ptr->pval[DEFAULT_PVAL])
-				o_ptr->pval[DEFAULT_PVAL] = 1;
+		create_mask(pval_mask, FALSE, OFT_PVAL, OFT_STAT, OFT_MAX);
+
+        /* Hack -- enforce legal pval, and apply pval flags */
+        for (i = 0; i < MAX_PVALS; i++) {
+			if (of_is_inter(o_ptr->ego->pval_flags[i], pval_mask)) {
+
+				of_union(o_ptr->pval_flags[DEFAULT_PVAL], o_ptr->ego->pval_flags[i]);
+
+				if (o_ptr->pval[DEFAULT_PVAL] < o_ptr->ego->min_pval[i])
+					o_ptr->pval[DEFAULT_PVAL] = o_ptr->ego->min_pval[i];
+			}
 		}
 	}
-
 
 	/* Success */
 	return (0);
@@ -618,13 +768,11 @@ static const struct {
 	{ 66, "animate_flicker" },
 	{ 68, "center_player" },
 	{ 69, "purple_uniques" },
-	{ 70, "xchars_to_file" },
 	{ 71, "auto_more" },
 	{ 74, "hp_changes_color" },
 	{ 77, "mouse_movement" },
 	{ 78, "mouse_buttons" },
 	{ 79, "notify_recharge" },
-	{ 160, "cheat_peek" },
 	{ 161, "cheat_hear" },
 	{ 162, "cheat_room" },
 	{ 163, "cheat_xtra" },
@@ -646,7 +794,6 @@ static const struct {
 	{ 208, "birth_ai_learn" },
 	{ 209, "birth_ai_cheat" },
 	{ 210, "birth_ai_smart" },
-	{ 224, "score_peek" },
 	{ 225, "score_hear" },
 	{ 226, "score_room" },
 	{ 227, "score_xtra" },
@@ -1039,9 +1186,6 @@ int rd_artifacts(void)
 }
 
 
-static u32b randart_version;
-
-
 /*
  * Read the "extra" information
  */
@@ -1064,7 +1208,6 @@ int rd_player(void)
 		note(format("Invalid player race (%d).", num));
 		return -1;
 	}
-	rp_ptr = p_ptr->race;
 
 	/* Player class */
 	rd_byte(&num);
@@ -1074,13 +1217,10 @@ int rd_player(void)
 		note(format("Invalid player class (%d).", num));
 		return -1;
 	}
-	cp_ptr = p_ptr->class;
-	mp_ptr = &p_ptr->class->spells;
 
 	/* Player gender */
 	rd_byte(&p_ptr->psex);
-	sp_ptr = &sex_info[p_ptr->psex];
-	p_ptr->sex = sp_ptr;
+	p_ptr->sex = &sex_info[p_ptr->psex];
 
 	/* Numeric name suffix */
 	rd_byte(&op_ptr->name_suffix);
@@ -1242,7 +1382,7 @@ int rd_squelch(void)
 		if (!k)
 			quit_fmt("objkind_byid(%d) failed", kidx);
 		rd_string(tmp, sizeof(tmp));
-		k->note = string_make(tmp);
+		k->note = quark_add(tmp);
 	}
 	
 	return 0;
@@ -1254,7 +1394,7 @@ int rd_misc(void)
 	byte tmp8u;
 	
 	/* Read the randart version */
-	rd_u32b(&randart_version);
+	strip_bytes(4);
 
 	/* Read the randart seed */
 	rd_u32b(&seed_randart);
@@ -1281,6 +1421,50 @@ int rd_misc(void)
 	/* Read "feeling" */
 	rd_byte(&tmp8u);
 	cave->feeling = tmp8u;
+
+	rd_s32b(&cave->created_at);
+
+	/* Current turn */
+	rd_s32b(&turn);
+
+	return 0;
+}
+
+int rd_misc_2(void)
+{
+	byte tmp8u;
+	u16b tmp16u;
+	
+	/* Read the randart version */
+	strip_bytes(4);
+
+	/* Read the randart seed */
+	rd_u32b(&seed_randart);
+
+	/* Skip the flags */
+	strip_bytes(12);
+
+
+	/* Hack -- the two "special seeds" */
+	rd_u32b(&seed_flavor);
+	rd_u32b(&seed_town);
+
+
+	/* Special stuff */
+	rd_u16b(&p_ptr->panic_save);
+	rd_u16b(&p_ptr->total_winner);
+	rd_u16b(&p_ptr->noscore);
+
+
+	/* Read "death" */
+	rd_byte(&tmp8u);
+	p_ptr->is_dead = tmp8u;
+
+	/* Read "feeling" */
+	rd_byte(&tmp8u);
+	cave->feeling = tmp8u;
+	rd_u16b(&tmp16u);
+	cave->feeling_squares = tmp16u;
 
 	rd_s32b(&cave->created_at);
 
@@ -1341,6 +1525,12 @@ int rd_player_spells(void)
 }
 
 
+/* We no longer store randarts in the savefile */
+int rd_randarts_3(void)
+{
+	return 0;
+}
+
 /*
  * Read the random artifacts, version 2
  */
@@ -1359,23 +1549,15 @@ int rd_randarts_2(void)
 	/* Read the number of artifacts */
 	rd_u16b(&artifact_count);
 
-	/* Alive or cheating death */
-	if (!p_ptr->is_dead || arg_wizard)
+	/* Alive or cheating death or re-using randarts */
+	if (!p_ptr->is_dead || arg_wizard ||
+			(OPT(birth_randarts) && OPT(birth_keep_randarts)))
 	{
 		/* Incompatible save files */
 		if (artifact_count > z_info->a_max)
 		{
 			note(format("Too many (%u) random artifacts!", artifact_count));
 			return (-1);
-		}
-
-		/* Mark the old artifacts as "empty" */
-		for (i = 0; i < z_info->a_max; i++)
-		{
-			artifact_type *a_ptr = &a_info[i];
-			a_ptr->name = 0;
-			a_ptr->tval = 0;
-			a_ptr->sval = 0;
 		}
 
 		/* Read the artifacts */
@@ -1428,6 +1610,18 @@ int rd_randarts_2(void)
 
 		/* Initialize only the randart names */
 		do_randart(seed_randart, FALSE);
+
+		/* Mark any stray old artifacts as "empty" */
+		if (artifact_count < z_info->a_max)
+		{
+			for (i = artifact_count; i < z_info->a_max; i++)
+			{
+				artifact_type *a_ptr = &a_info[i];
+				a_ptr->name = 0;
+				a_ptr->tval = 0;
+				a_ptr->sval = 0;
+			}
+		}
 	}
 	else
 	{
@@ -1493,133 +1687,111 @@ int rd_randarts_1(void)
 	if (!OPT(birth_randarts))
 		return 0;
 
-	if (FALSE)
-	{
-		/*
-		 * XXX XXX XXX
-		 * Importing old savefiles with random artifacts is dangerous
-		 * since the randart-generators differ and produce different
-		 * artifacts from the same random seed.
-		 *
-		 * Switching off the check for incompatible randart versions
-		 * allows to import such a savefile - do it at your own risk.
-		 */
+	/* Read the number of artifacts */
+	rd_u16b(&artifact_count);
 
-		/* Check for incompatible randart version */
-		if (randart_version != RANDART_VERSION)
+	/* Alive or cheating death */
+	if (!p_ptr->is_dead || arg_wizard)
+	{
+		/* Incompatible save files */
+		if (artifact_count > z_info->a_max)
 		{
-			note(format("Incompatible random artifacts version!"));
+			note(format("Too many (%u) random artifacts!", artifact_count));
 			return (-1);
 		}
 
-		/* Initialize randarts */
-		do_randart(seed_randart, TRUE);
-	}
-	else
-	{
-		/* Read the number of artifacts */
-		rd_u16b(&artifact_count);
-
-		/* Alive or cheating death */
-		if (!p_ptr->is_dead || arg_wizard)
+		/* Read the artifacts */
+		for (i = 0; i < artifact_count; i++)
 		{
-			/* Incompatible save files */
-			if (artifact_count > z_info->a_max)
-			{
-				note(format("Too many (%u) random artifacts!", artifact_count));
-				return (-1);
-			}
+			artifact_type *a_ptr = &a_info[i];
+			u16b time_base, time_dice, time_sides;
 
-			/* Mark the old artifacts as "empty" */
-			for (i = 0; i < z_info->a_max; i++)
+			rd_byte(&a_ptr->tval);
+			rd_byte(&a_ptr->sval);
+			rd_s16b(&a_ptr->pval[DEFAULT_PVAL]);
+
+			rd_s16b(&a_ptr->to_h);
+			rd_s16b(&a_ptr->to_d);
+			rd_s16b(&a_ptr->to_a);
+			rd_s16b(&a_ptr->ac);
+
+			rd_byte(&a_ptr->dd);
+			rd_byte(&a_ptr->ds);
+
+			rd_s16b(&a_ptr->weight);
+
+			rd_s32b(&a_ptr->cost);
+
+			/* Hack - XXX - MarbleDice - Maximum saveable flags = 96 */
+			for (j = 0; j < 12 && j < OF_SIZE; j++)
+				rd_byte(&a_ptr->flags[j]);
+			if (j < 12) strip_bytes(OF_SIZE - j);
+
+			rd_byte(&a_ptr->level);
+			rd_byte(&a_ptr->rarity);
+			rd_byte(&a_ptr->alloc_prob);
+			rd_byte(&a_ptr->alloc_min);
+			rd_byte(&a_ptr->alloc_max);
+
+			rd_u16b(&a_ptr->effect);
+			rd_u16b(&time_base);
+			rd_u16b(&time_dice);
+			rd_u16b(&time_sides);
+			a_ptr->time.base = time_base;
+			a_ptr->time.dice = time_dice;
+			a_ptr->time.sides = time_sides;
+		}
+
+		/* Initialize only the randart names */
+		do_randart(seed_randart, FALSE);
+
+		/* Mark any stray old artifacts as "empty" */
+		if (artifact_count < z_info->a_max)
+		{
+			for (i = artifact_count; i < z_info->a_max; i++)
 			{
 				artifact_type *a_ptr = &a_info[i];
 				a_ptr->name = 0;
 				a_ptr->tval = 0;
 				a_ptr->sval = 0;
 			}
-
-			/* Read the artifacts */
-			for (i = 0; i < artifact_count; i++)
-			{
-				artifact_type *a_ptr = &a_info[i];
-				u16b time_base, time_dice, time_sides;
-
-				rd_byte(&a_ptr->tval);
-				rd_byte(&a_ptr->sval);
-				rd_s16b(&a_ptr->pval[DEFAULT_PVAL]);
-
-				rd_s16b(&a_ptr->to_h);
-				rd_s16b(&a_ptr->to_d);
-				rd_s16b(&a_ptr->to_a);
-				rd_s16b(&a_ptr->ac);
-
-				rd_byte(&a_ptr->dd);
-				rd_byte(&a_ptr->ds);
-
-				rd_s16b(&a_ptr->weight);
-
-				rd_s32b(&a_ptr->cost);
-
-				/* Hack - XXX - MarbleDice - Maximum saveable flags = 96 */
-				for (j = 0; j < 12 && j < OF_SIZE; j++)
-					rd_byte(&a_ptr->flags[j]);
-				if (j < 12) strip_bytes(OF_SIZE - j);
-
-				rd_byte(&a_ptr->level);
-				rd_byte(&a_ptr->rarity);
-				rd_byte(&a_ptr->alloc_prob);
-				rd_byte(&a_ptr->alloc_min);
-				rd_byte(&a_ptr->alloc_max);
-
-				rd_u16b(&a_ptr->effect);
-				rd_u16b(&time_base);
-				rd_u16b(&time_dice);
-				rd_u16b(&time_sides);
-				a_ptr->time.base = time_base;
-				a_ptr->time.dice = time_dice;
-				a_ptr->time.sides = time_sides;
-			}
-
-			/* Initialize only the randart names */
-			do_randart(seed_randart, FALSE);
 		}
-		else
+	}
+	else
+	{
+		/* Read the artifacts */
+		for (i = 0; i < artifact_count; i++)
 		{
-			/* Read the artifacts */
-			for (i = 0; i < artifact_count; i++)
-			{
-				rd_byte(&tmp8u); /* a_ptr->tval */
-				rd_byte(&tmp8u); /* a_ptr->sval */
-				rd_s16b(&tmp16s); /* a_ptr->pval */
+			rd_byte(&tmp8u); /* a_ptr->tval */
+			rd_byte(&tmp8u); /* a_ptr->sval */
+			rd_s16b(&tmp16s); /* a_ptr->pval */
 
-				rd_s16b(&tmp16s); /* a_ptr->to_h */
-				rd_s16b(&tmp16s); /* a_ptr->to_d */
-				rd_s16b(&tmp16s); /* a_ptr->to_a */
-				rd_s16b(&tmp16s); /* a_ptr->ac */
+			rd_s16b(&tmp16s); /* a_ptr->to_h */
+			rd_s16b(&tmp16s); /* a_ptr->to_d */
+			rd_s16b(&tmp16s); /* a_ptr->to_a */
+			rd_s16b(&tmp16s); /* a_ptr->ac */
 
-				rd_byte(&tmp8u); /* a_ptr->dd */
-				rd_byte(&tmp8u); /* a_ptr->ds */
+			rd_byte(&tmp8u); /* a_ptr->dd */
+			rd_byte(&tmp8u); /* a_ptr->ds */
 
-				rd_s16b(&tmp16s); /* a_ptr->weight */
+			rd_s16b(&tmp16s); /* a_ptr->weight */
 
-				rd_s32b(&tmp32s); /* a_ptr->cost */
+			rd_s32b(&tmp32s); /* a_ptr->cost */
 
-				rd_u32b(&tmp32u); /* a_ptr->flags1 */
-				rd_u32b(&tmp32u); /* a_ptr->flags2 */
-				rd_u32b(&tmp32u); /* a_ptr->flags3 */
+			rd_u32b(&tmp32u); /* a_ptr->flags1 */
+			rd_u32b(&tmp32u); /* a_ptr->flags2 */
+			rd_u32b(&tmp32u); /* a_ptr->flags3 */
 
-				rd_byte(&tmp8u); /* a_ptr->level */
-				rd_byte(&tmp8u); /* a_ptr->rarity */
-				rd_byte(&tmp8u); /* a_ptr->alloc_prob */
-				rd_byte(&tmp8u); /* a_ptr->alloc_min */
-				rd_byte(&tmp8u); /* a_ptr->alloc_max */
+			rd_byte(&tmp8u); /* a_ptr->level */
+			rd_byte(&tmp8u); /* a_ptr->rarity */
+			rd_byte(&tmp8u); /* a_ptr->alloc_prob */
+			rd_byte(&tmp8u); /* a_ptr->alloc_min */
+			rd_byte(&tmp8u); /* a_ptr->alloc_max */
 
-				rd_u16b(&tmp16u); /* a_ptr->effect */
-				rd_u16b(&tmp16u); /* a_ptr->time_base */
-				rd_u16b(&tmp16u); /* a_ptr->time_dice */
-				rd_u16b(&tmp16u); /* a_ptr->time_sides */
-			}
+			rd_u16b(&tmp16u); /* a_ptr->effect */
+			rd_u16b(&tmp16u); /* a_ptr->time_base */
+			rd_u16b(&tmp16u); /* a_ptr->time_dice */
+			rd_u16b(&tmp16u); /* a_ptr->time_sides */
 		}
 	}
 
@@ -1627,12 +1799,12 @@ int rd_randarts_1(void)
 }
 
 
-/*
- * Read the player inventory, version 2
+/**
+ * Read the player inventory
  *
- * Note that the inventory is "re-sorted" later by "dungeon()".
+ * Note that the inventory is re-sorted later by dungeon().
  */
-int rd_inventory_2(void)
+static int rd_inventory(rd_item_t rd_item_version)
 {
 	int slot = 0;
 
@@ -1657,14 +1829,14 @@ int rd_inventory_2(void)
 		object_wipe(i_ptr);
 
 		/* Read the item */
-		if (rd_item_2(i_ptr))
+		if ((*rd_item_version)(i_ptr))
 		{
 			note("Error reading item");
 			return (-1);
 		}
 
 		/* Hack -- verify item */
-		if (!i_ptr->k_idx) continue;;
+		if (!i_ptr->kind) continue;
 
 		/* Verify slot */
 		if (n >= ALL_INVEN_TOTAL) return (-1);
@@ -1716,95 +1888,16 @@ int rd_inventory_2(void)
 }
 
 /*
- * Read the player inventory - remove after 3.3
- *
- * Note that the inventory is "re-sorted" later by "dungeon()".
+ * Read the player inventory - wrapper functions
  */
-int rd_inventory_1(void)
-{
-	int slot = 0;
+int rd_inventory_4(void) { return rd_inventory(rd_item_4); }
+int rd_inventory_3(void) { return rd_inventory(rd_item_3); }
+int rd_inventory_2(void) { return rd_inventory(rd_item_2); } /* remove post-3.3 */
+int rd_inventory_1(void) { return rd_inventory(rd_item_1); } /* remove post-3.3 */
 
-	object_type *i_ptr;
-	object_type object_type_body;
 
-	/* Read until done */
-	while (1)
-	{
-		u16b n;
-
-		/* Get the next item index */
-		rd_u16b(&n);
-
-		/* Nope, we reached the end */
-		if (n == 0xFFFF) break;
-
-		/* Get local object */
-		i_ptr = &object_type_body;
-
-		/* Wipe the object */
-		object_wipe(i_ptr);
-
-		/* Read the item */
-		if (rd_item_1(i_ptr))
-		{
-			note("Error reading item");
-			return (-1);
-		}
-
-		/* Hack -- verify item */
-		if (!i_ptr->k_idx) continue;;
-
-		/* Verify slot */
-		if (n >= ALL_INVEN_TOTAL) return (-1);
-
-		/* Wield equipment */
-		if (n >= INVEN_WIELD)
-		{
-			/* Copy object */
-			object_copy(&p_ptr->inventory[n], i_ptr);
-
-			/* Add the weight */
-			p_ptr->total_weight += (i_ptr->number * i_ptr->weight);
-
-			/* One more item */
-			p_ptr->equip_cnt++;
-		}
-
-		/* Warning -- backpack is full */
-		else if (p_ptr->inven_cnt == INVEN_PACK)
-		{
-			/* Oops */
-			note("Too many items in the inventory!");
-
-			/* Fail */
-			return (-1);
-		}
-
-		/* Carry inventory */
-		else
-		{
-			/* Get a slot */
-			n = slot++;
-
-			/* Copy object */
-			object_copy(&p_ptr->inventory[n], i_ptr);
-
-			/* Add the weight */
-			p_ptr->total_weight += (i_ptr->number * i_ptr->weight);
-
-			/* One more item */
-			p_ptr->inven_cnt++;
-		}
-	}
-
-	save_quiver_size(p_ptr);
-
-	/* Success */
-	return (0);
-}
-
-/* Read store contents, version 2 */
-int rd_stores_2(void)
+/* Read store contents */
+static int rd_stores(rd_item_t rd_item_version)
 {
 	int i;
 	u16b tmp16u;
@@ -1813,7 +1906,7 @@ int rd_stores_2(void)
 	rd_u16b(&tmp16u);
 	for (i = 0; i < tmp16u; i++)
 	{
-		store_type *st_ptr = &store[i];
+		struct store *st_ptr = &stores[i];
 
 		int j;		
 		byte own, num;
@@ -1826,71 +1919,6 @@ int rd_stores_2(void)
 		rd_byte(&num);
 		
 		/* XXX */
-		strip_bytes(4);
-	
-		/* XXX: refactor into store.c */
-		st_ptr->owner = store_ownerbyidx(st_ptr, own);
-		
-		/* Read the items */
-		for (j = 0; j < num; j++)
-		{
-			object_type *i_ptr;
-			object_type object_type_body;
-			
-			/* Get local object */
-			i_ptr = &object_type_body;
-			
-			/* Wipe the object */
-			object_wipe(i_ptr);
-			
-			/* Read the item */
-			if (rd_item_2(i_ptr))
-			{
-				note("Error reading item");
-				return (-1);
-			}
-
-			if (i != STORE_HOME)
-				i_ptr->ident |= IDENT_STORE;
-			
-			/* Accept any valid items */
-			if ((st_ptr->stock_num < STORE_INVEN_MAX) &&
-				(i_ptr->k_idx))
-			{
-				int k = st_ptr->stock_num++;
-
-				/* Accept the item */
-				object_copy(&st_ptr->stock[k], i_ptr);
-			}
-		}
-	}
-
-	return 0;
-}
-
-/* Read store contents - remove after 3.3 */
-int rd_stores_1(void)
-{
-	int i;
-	u16b tmp16u;
-	
-	/* Read the stores */
-	rd_u16b(&tmp16u);
-	for (i = 0; i < tmp16u; i++)
-	{
-		store_type *st_ptr = &store[i];
-
-		int j;		
-		byte own, num;
-		
-		/* XXX */
-		strip_bytes(6);
-		
-		/* Read the basic info */
-		rd_byte(&own);
-		rd_byte(&num);
-		
-		/* XXs */
 		strip_bytes(4);
 		
 		/* XXX: refactor into store.c */
@@ -1909,7 +1937,7 @@ int rd_stores_1(void)
 			object_wipe(i_ptr);
 			
 			/* Read the item */
-			if (rd_item_1(i_ptr))
+			if ((*rd_item_version)(i_ptr))
 			{
 				note("Error reading item");
 				return (-1);
@@ -1919,8 +1947,7 @@ int rd_stores_1(void)
 				i_ptr->ident |= IDENT_STORE;
 			
 			/* Accept any valid items */
-			if ((st_ptr->stock_num < STORE_INVEN_MAX) &&
-				(i_ptr->k_idx))
+			if (st_ptr->stock_num < STORE_INVEN_MAX && i_ptr->kind)
 			{
 				int k = st_ptr->stock_num++;
 
@@ -1932,6 +1959,15 @@ int rd_stores_1(void)
 
 	return 0;
 }
+
+/*
+ * Read the stores - wrapper functions
+ */
+int rd_stores_4(void) { return rd_stores(rd_item_4); }
+int rd_stores_3(void) { return rd_stores(rd_item_3); }
+int rd_stores_2(void) { return rd_stores(rd_item_2); } /* remove post-3.3 */
+int rd_stores_1(void) { return rd_stores(rd_item_1); } /* remove post-3.3 */
+
 
 /*
  * Read the dungeon
@@ -1987,13 +2023,8 @@ int rd_dungeon(void)
 		return (0);
 	}
 
-	/* Ignore illegal dungeons */
-	if ((ymax != DUNGEON_HGT) || (xmax != DUNGEON_WID))
-	{
-		/* XXX XXX XXX */
-		note(format("Ignoring illegal dungeon size (%d,%d).", ymax, xmax));
-		return (0);
-	}
+	cave->width = xmax;
+	cave->height = ymax;
 
 	/* Ignore illegal dungeons */
 	if ((px < 0) || (px >= DUNGEON_WID) ||
@@ -2108,8 +2139,8 @@ int rd_dungeon(void)
 	return 0;
 }
 
-/* Read the floor object list, version 2 */
-int rd_objects_2(void)
+/* Read the floor object list */
+static int rd_objects(rd_item_t rd_item_version)
 {
 	int i;
 	u16b limit;
@@ -2145,7 +2176,7 @@ int rd_objects_2(void)
 		object_wipe(i_ptr);
 
 		/* Read the item */
-		if (rd_item_2(i_ptr))
+		if ((*rd_item_version)(i_ptr))
 		{
 			note("Error reading item");
 			return (-1);
@@ -2162,7 +2193,7 @@ int rd_objects_2(void)
 		}
 
 		/* Get the object */
-		o_ptr = &o_list[o_idx];
+		o_ptr = object_byid(o_idx);
 
 		/* Structure Copy */
 		object_copy(o_ptr, i_ptr);
@@ -2186,88 +2217,113 @@ int rd_objects_2(void)
 	return 0;
 }
 
-/* Read the floor object list - remove after 3.3 */
-int rd_objects_1(void)
+/*
+ * Read the object list - wrapper functions
+ */
+int rd_objects_4(void) { return rd_objects(rd_item_4); }
+int rd_objects_3(void) { return rd_objects(rd_item_3); }
+int rd_objects_2(void) { return rd_objects(rd_item_2); } /* remove post-3.3 */
+int rd_objects_1(void) { return rd_objects(rd_item_1); } /* remove post-3.3 */
+
+
+/**
+ * Read monsters (old version - before MON_TMD_FOO) 
+ * - remove after 3.3
+ */
+int rd_monsters_1(void)
 {
 	int i;
 	u16b limit;
+	byte tmp;
 
 	/* Only if the player's alive */
 	if (p_ptr->is_dead)
 		return 0;
-
-	/* Read the item count */
+	
+	/* Read the monster count */
 	rd_u16b(&limit);
 
-	/* Verify maximum */
-	if (limit > z_info->o_max)
+	/* Hack -- verify */
+	if (limit > z_info->m_max)
 	{
-		note(format("Too many (%d) object entries!", limit));
+		note(format("Too many (%d) monster entries!", limit));
 		return (-1);
 	}
 
-	/* Read the dungeon items */
+	/* Read the monsters */
 	for (i = 1; i < limit; i++)
 	{
-		object_type *i_ptr;
-		object_type object_type_body;
+		monster_type *m_ptr;
+		monster_type monster_type_body;
 
-		s16b o_idx;
+		/* Get local monster */
+		m_ptr = &monster_type_body;
+		WIPE(m_ptr, monster_type);
+
+		/* Read in record */
+		rd_s16b(&m_ptr->r_idx);
+		rd_byte(&m_ptr->fy);
+		rd_byte(&m_ptr->fx);
+		rd_s16b(&m_ptr->hp);
+		rd_s16b(&m_ptr->maxhp);
+		rd_s16b(&m_ptr->m_timed[MON_TMD_SLEEP]);
+		rd_byte(&m_ptr->mspeed);
+		rd_byte(&m_ptr->energy);
+		rd_byte(&tmp);
+		m_ptr->m_timed[MON_TMD_STUN] = tmp;
+		rd_byte(&tmp);
+		m_ptr->m_timed[MON_TMD_CONF] = tmp;
+		rd_byte(&tmp);
+		m_ptr->m_timed[MON_TMD_FEAR] = tmp;
+
+		strip_bytes(1);
+
+		/* Place monster in dungeon */
+		if (place_monster(m_ptr->fy, m_ptr->fx, m_ptr, 0) != i)
+		{
+			note(format("Cannot place monster %d", i));
+			return (-1);
+		}
+	}
+
+	/* Reacquire objects */
+	for (i = 1; i < o_max; ++i)
+	{
 		object_type *o_ptr;
-
+		monster_type *m_ptr;
 
 		/* Get the object */
-		i_ptr = &object_type_body;
+		o_ptr = object_byid(i);
 
-		/* Wipe the object */
-		object_wipe(i_ptr);
+		/* Ignore dungeon objects */
+		if (!o_ptr->held_m_idx) continue;
 
-		/* Read the item */
-		if (rd_item_1(i_ptr))
+		/* Verify monster index */
+		if (o_ptr->held_m_idx > z_info->m_max)
 		{
-			note("Error reading item");
+			note("Invalid monster index");
 			return (-1);
 		}
 
-		/* Make an object */
-		o_idx = o_pop();
+		/* Get the monster */
+		m_ptr = cave_monster(cave, o_ptr->held_m_idx);
 
-		/* Paranoia */
-		if (o_idx != i)
-		{
-			note(format("Cannot place object %d!", i));
-			return (-1);
-		}
+		/* Link the object to the pile */
+		o_ptr->next_o_idx = m_ptr->hold_o_idx;
 
-		/* Get the object */
-		o_ptr = &o_list[o_idx];
-
-		/* Structure Copy */
-		object_copy(o_ptr, i_ptr);
-
-		/* Dungeon floor */
-		if (!i_ptr->held_m_idx)
-		{
-			int x = i_ptr->ix;
-			int y = i_ptr->iy;
-
-			/* ToDo: Verify coordinates */
-
-			/* Link the object to the pile */
-			o_ptr->next_o_idx = cave->o_idx[y][x];
-
-			/* Link the floor to the object */
-			cave->o_idx[y][x] = o_idx;
-		}
+		/* Link the monster to the object */
+		m_ptr->hold_o_idx = i;
 	}
 
 	return 0;
 }
 
-
-int rd_monsters(void)
+/**
+ * Read monsters (MON_TMD_MAX = 4)
+ */
+int rd_monsters_2(void)
 {
-	int i;
+	int i, j;
 	u16b limit;
 
 	/* Only if the player's alive */
@@ -2300,16 +2356,16 @@ int rd_monsters(void)
 		rd_byte(&m_ptr->fx);
 		rd_s16b(&m_ptr->hp);
 		rd_s16b(&m_ptr->maxhp);
-		rd_s16b(&m_ptr->csleep);
 		rd_byte(&m_ptr->mspeed);
 		rd_byte(&m_ptr->energy);
-		rd_byte(&m_ptr->stunned);
-		rd_byte(&m_ptr->confused);
-		rd_byte(&m_ptr->monfear);
+
+		for (j = 0; j < 4; j++)
+			rd_s16b(&m_ptr->m_timed[j]);
+
 		strip_bytes(1);
 
 		/* Place monster in dungeon */
-		if (monster_place(m_ptr->fy, m_ptr->fx, m_ptr) != i)
+		if (place_monster(m_ptr->fy, m_ptr->fx, m_ptr, 0) != i)
 		{
 			note(format("Cannot place monster %d", i));
 			return (-1);
@@ -2323,7 +2379,7 @@ int rd_monsters(void)
 		monster_type *m_ptr;
 
 		/* Get the object */
-		o_ptr = &o_list[i];
+		o_ptr = object_byid(i);
 
 		/* Ignore dungeon objects */
 		if (!o_ptr->held_m_idx) continue;
@@ -2336,7 +2392,7 @@ int rd_monsters(void)
 		}
 
 		/* Get the monster */
-		m_ptr = &mon_list[o_ptr->held_m_idx];
+		m_ptr = cave_monster(cave, o_ptr->held_m_idx);
 
 		/* Link the object to the pile */
 		o_ptr->next_o_idx = m_ptr->hold_o_idx;
@@ -2348,6 +2404,406 @@ int rd_monsters(void)
 	return 0;
 }
 
+
+/**
+ * Read monsters (MON_TMD_MAX = 4, new "unaware" setting)
+ */
+int rd_monsters_3(void)
+{
+	int i, j;
+	u16b limit;
+
+	/* Only if the player's alive */
+	if (p_ptr->is_dead)
+		return 0;
+	
+	/* Read the monster count */
+	rd_u16b(&limit);
+
+	/* Hack -- verify */
+	if (limit > z_info->m_max)
+	{
+		note(format("Too many (%d) monster entries!", limit));
+		return (-1);
+	}
+
+	/* Read the monsters */
+	for (i = 1; i < limit; i++)
+	{
+		monster_type *m_ptr;
+		monster_type monster_type_body;
+		
+		byte flags;
+
+		/* Get local monster */
+		m_ptr = &monster_type_body;
+		WIPE(m_ptr, monster_type);
+
+		/* Read in record */
+		rd_s16b(&m_ptr->r_idx);
+		rd_byte(&m_ptr->fy);
+		rd_byte(&m_ptr->fx);
+		rd_s16b(&m_ptr->hp);
+		rd_s16b(&m_ptr->maxhp);
+		rd_byte(&m_ptr->mspeed);
+		rd_byte(&m_ptr->energy);
+
+		for (j = 0; j < 4; j++)
+			rd_s16b(&m_ptr->m_timed[j]);
+
+		/* Read and extract the flag */
+		rd_byte(&flags);
+		m_ptr->unaware = (flags & 0x01) ? TRUE : FALSE;
+			
+		strip_bytes(1);
+
+		/* Place monster in dungeon */
+		if (place_monster(m_ptr->fy, m_ptr->fx, m_ptr, 0) != i)
+		{
+			note(format("Cannot place monster %d", i));
+			return (-1);
+		}
+	}
+
+	/* Reacquire objects */
+	for (i = 1; i < o_max; ++i)
+	{
+		object_type *o_ptr;
+		monster_type *m_ptr;
+
+		/* Get the object */
+		o_ptr = object_byid(i);
+
+		/* Ignore dungeon objects */
+		if (!o_ptr->held_m_idx) continue;
+
+		/* Verify monster index */
+		if (o_ptr->held_m_idx > z_info->m_max)
+		{
+			note("Invalid monster index");
+			return (-1);
+		}
+
+		/* Get the monster */
+		m_ptr = cave_monster(cave, o_ptr->held_m_idx);
+
+		/* Link the object to the pile */
+		o_ptr->next_o_idx = m_ptr->hold_o_idx;
+
+		/* Link the monster to the object */
+		m_ptr->hold_o_idx = i;
+	}
+
+	return 0;
+}
+
+/**
+ * Read monsters (MON_TMD_MAX = variable)
+ */
+int rd_monsters_4(void)
+{
+	int i, j;
+	u16b limit;
+
+	/* Only if the player's alive */
+	if (p_ptr->is_dead)
+		return 0;
+	
+	/* Read the monster count */
+	rd_u16b(&limit);
+
+	/* Hack -- verify */
+	if (limit > z_info->m_max)
+	{
+		note(format("Too many (%d) monster entries!", limit));
+		return (-1);
+	}
+
+	/* Read the monsters */
+	for (i = 1; i < limit; i++)
+	{
+		monster_type *m_ptr;
+		monster_type monster_type_body;
+		
+		byte flags;
+		byte tmp8u;
+
+		/* Get local monster */
+		m_ptr = &monster_type_body;
+		WIPE(m_ptr, monster_type);
+
+		/* Read in record */
+		rd_s16b(&m_ptr->r_idx);
+		rd_byte(&m_ptr->fy);
+		rd_byte(&m_ptr->fx);
+		rd_s16b(&m_ptr->hp);
+		rd_s16b(&m_ptr->maxhp);
+		rd_byte(&m_ptr->mspeed);
+		rd_byte(&m_ptr->energy);
+		rd_byte(&tmp8u);
+
+		for (j = 0; j < tmp8u; j++)
+			rd_s16b(&m_ptr->m_timed[j]);
+
+		/* Read and extract the flag */
+		rd_byte(&flags);
+		m_ptr->unaware = (flags & 0x01) ? TRUE : FALSE;
+			
+		strip_bytes(1);
+
+		/* Place monster in dungeon */
+		if (place_monster(m_ptr->fy, m_ptr->fx, m_ptr, 0) != i)
+		{
+			note(format("Cannot place monster %d", i));
+			return (-1);
+		}
+	}
+
+	/* Reacquire objects */
+	for (i = 1; i < o_max; ++i)
+	{
+		object_type *o_ptr;
+		monster_type *m_ptr;
+
+		/* Get the object */
+		o_ptr = object_byid(i);
+
+		/* Ignore dungeon objects */
+		if (!o_ptr->held_m_idx) continue;
+
+		/* Verify monster index */
+		if (o_ptr->held_m_idx > z_info->m_max)
+		{
+			note("Invalid monster index");
+			return (-1);
+		}
+
+		/* Get the monster */
+		m_ptr = cave_monster(cave, o_ptr->held_m_idx);
+
+		/* Link the object to the pile */
+		o_ptr->next_o_idx = m_ptr->hold_o_idx;
+
+		/* Link the monster to the object */
+		m_ptr->hold_o_idx = i;
+	}
+
+	return 0;
+}
+
+/**
+ * Read monsters (added m_ptr->known_pflags)
+ */
+int rd_monsters_5(void)
+{
+	int i;
+	size_t j;
+	u16b limit;
+
+	/* Only if the player's alive */
+	if (p_ptr->is_dead)
+		return 0;
+	
+	/* Read the monster count */
+	rd_u16b(&limit);
+
+	/* Hack -- verify */
+	if (limit > z_info->m_max)
+	{
+		note(format("Too many (%d) monster entries!", limit));
+		return (-1);
+	}
+
+	/* Read the monsters */
+	for (i = 1; i < limit; i++)
+	{
+		monster_type *m_ptr;
+		monster_type monster_type_body;
+		
+		byte flags;
+		byte tmp8u;
+
+		/* Get local monster */
+		m_ptr = &monster_type_body;
+		WIPE(m_ptr, monster_type);
+
+		/* Read in record */
+		rd_s16b(&m_ptr->r_idx);
+		rd_byte(&m_ptr->fy);
+		rd_byte(&m_ptr->fx);
+		rd_s16b(&m_ptr->hp);
+		rd_s16b(&m_ptr->maxhp);
+		rd_byte(&m_ptr->mspeed);
+		rd_byte(&m_ptr->energy);
+		rd_byte(&tmp8u);
+
+		for (j = 0; j < tmp8u; j++)
+			rd_s16b(&m_ptr->m_timed[j]);
+
+		/* Read and extract the flag */
+		rd_byte(&flags);
+		m_ptr->unaware = (flags & 0x01) ? TRUE : FALSE;
+	
+		for (j = 0; j < OF_BYTES && j < OF_SIZE; j++)
+			rd_byte(&m_ptr->known_pflags[j]);
+		if (j < OF_BYTES) strip_bytes(OF_BYTES - j);
+		
+		strip_bytes(1);
+
+		/* Place monster in dungeon */
+		if (place_monster(m_ptr->fy, m_ptr->fx, m_ptr, 0) != i)
+		{
+			note(format("Cannot place monster %d", i));
+			return (-1);
+		}
+	}
+
+	/* Reacquire objects */
+	for (i = 1; i < o_max; ++i)
+	{
+		object_type *o_ptr;
+		monster_type *m_ptr;
+
+		/* Get the object */
+		o_ptr = object_byid(i);
+
+		/* Ignore dungeon objects */
+		if (!o_ptr->held_m_idx) continue;
+
+		/* Verify monster index */
+		if (o_ptr->held_m_idx > z_info->m_max)
+		{
+			note("Invalid monster index");
+			return (-1);
+		}
+
+		/* Get the monster */
+		m_ptr = cave_monster(cave, o_ptr->held_m_idx);
+
+		/* Link the object to the pile */
+		o_ptr->next_o_idx = m_ptr->hold_o_idx;
+
+		/* Link the monster to the object */
+		m_ptr->hold_o_idx = i;
+	}
+
+	return 0;
+}
+
+/**
+ * Read monsters (added m_ptr->mimicked_o_idx)
+ */
+int rd_monsters_6(void)
+{
+	int i;
+	size_t j;
+	u16b limit;
+
+	/* Only if the player's alive */
+	if (p_ptr->is_dead)
+		return 0;
+	
+	/* Read the monster count */
+	rd_u16b(&limit);
+
+	/* Hack -- verify */
+	if (limit > z_info->m_max)
+	{
+		note(format("Too many (%d) monster entries!", limit));
+		return (-1);
+	}
+
+	/* Read the monsters */
+	for (i = 1; i < limit; i++)
+	{
+		monster_type *m_ptr;
+		monster_type monster_type_body;
+		
+		byte flags;
+		byte tmp8u;
+
+		/* Get local monster */
+		m_ptr = &monster_type_body;
+		WIPE(m_ptr, monster_type);
+
+		/* Read in record */
+		rd_s16b(&m_ptr->r_idx);
+		rd_byte(&m_ptr->fy);
+		rd_byte(&m_ptr->fx);
+		rd_s16b(&m_ptr->hp);
+		rd_s16b(&m_ptr->maxhp);
+		rd_byte(&m_ptr->mspeed);
+		rd_byte(&m_ptr->energy);
+		rd_byte(&tmp8u);
+
+		for (j = 0; j < tmp8u; j++)
+			rd_s16b(&m_ptr->m_timed[j]);
+
+		/* Read and extract the flag */
+		rd_byte(&flags);
+		m_ptr->unaware = (flags & 0x01) ? TRUE : FALSE;
+	
+		for (j = 0; j < OF_BYTES && j < OF_SIZE; j++)
+			rd_byte(&m_ptr->known_pflags[j]);
+		if (j < OF_BYTES) strip_bytes(OF_BYTES - j);
+		
+		strip_bytes(1);
+
+		/* Place monster in dungeon */
+		if (place_monster(m_ptr->fy, m_ptr->fx, m_ptr, 0) != i)
+		{
+			note(format("Cannot place monster %d", i));
+			return (-1);
+		}
+	}
+
+	/* Reacquire objects */
+	for (i = 1; i < o_max; ++i)
+	{
+		object_type *o_ptr;
+		monster_type *m_ptr;
+
+		/* Get the object */
+		o_ptr = object_byid(i);
+
+		/* Check for mimics */
+		if (o_ptr->mimicking_m_idx) {
+		
+			/* Verify monster index */
+			if (o_ptr->mimicking_m_idx > z_info->m_max)
+			{
+				note("Invalid monster index");
+				return (-1);
+			}
+
+			/* Get the monster */
+			m_ptr = cave_monster(cave, o_ptr->mimicking_m_idx);
+
+			/* Link the monster to the object */
+			m_ptr->mimicked_o_idx = i;
+			
+		} else if (o_ptr->held_m_idx) {
+		
+			/* Verify monster index */
+			if (o_ptr->held_m_idx > z_info->m_max)
+			{
+				note("Invalid monster index");
+				return (-1);
+			}
+
+			/* Get the monster */
+			m_ptr = cave_monster(cave, o_ptr->held_m_idx);
+
+			/* Link the object to the pile */
+			o_ptr->next_o_idx = m_ptr->hold_o_idx;
+
+			/* Link the monster to the object */
+			m_ptr->hold_o_idx = i;
+		} else continue;
+	}
+
+	return 0;
+}
 
 int rd_ghost(void)
 {
@@ -2392,7 +2848,7 @@ int rd_history(void)
 		rd_byte(&art_name);
 		rd_string(text, sizeof(text));
 		
-		history_add_full(type, art_name, dlev, clev, turn, text);
+		history_add_full(type, &a_info[art_name], dlev, clev, turn, text);
 	}
 
 	return 0;

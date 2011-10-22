@@ -1,12 +1,13 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT([Angband], [3.2.0], [bugs@rephial.org], [angband])
-AC_PREREQ([2.59])
+AC_INIT(Angband, 3.3.0, bugs@rephial.org)
+AC_CONFIG_SRCDIR(src)
 
-AC_CONFIG_HEADER(src/autoconf.h)
-AC_CONFIG_SRCDIR([configure.ac])
+BUILDSYS_INIT
+BUILDSYS_TOUCH_DEPS
 
-AC_SUBST([PACKAGE], [AC_PACKAGE_TARNAME])
-AC_SUBST([VERSION], [AC_PACKAGE_VERSION])
+AC_SUBST(PACKAGE, angband)
+
+AC_CONFIG_HEADERS(src/autoconf.h)
 
 AC_DEFINE_UNQUOTED(PACKAGE, "$PACKAGE", [Name of package])
 AC_DEFINE_UNQUOTED(VERSION, "$VERSION", [Version number of package])
@@ -93,7 +94,7 @@ if test "x$with_private_dirs" != "x"; then
 fi
 
 # Only change bindir if it's the configure-supplied default, which handily doesn't expand exec_prefix
-if test "x$bindir" == "x\${exec_prefix}/bin"; then
+if test "x$bindir" = "x\${exec_prefix}/bin"; then
   bindir=${exec_prefix}/games
 fi
 
@@ -102,7 +103,7 @@ AC_ARG_WITH(configpath, [  --with-configpath=PATH  use PATH as the path to the A
 if test "x$with_configpath" != "x"; then
 	configpath="${with_configpath}"
 elif test "x$with_no_install" != "x"; then
-	configpath="./lib/"
+	configpath="${PWD}/lib/"
 else
 	configpath="${prefix}/etc/${PACKAGE}/"
 fi
@@ -117,7 +118,7 @@ AC_ARG_WITH(libpath, [  --with-libpath=PATH     use PATH as the path to the Angb
 if test "x$with_libpath" != "x"; then
 	libpath="${with_libpath}"
 elif test "x$with_no_install" != "x"; then
-	libpath="./lib/"
+	libpath="${PWD}/lib/"
 	bindir=".."
 else
 	libpath="${prefix}/share/${PACKAGE}/"
@@ -133,7 +134,7 @@ AC_ARG_WITH(varpath, [  --with-varpath=PATH     use PATH as the path to the Angb
 if test "x$with_varpath" != "x"; then
 	varpath="${with_varpath}"
 elif test "x$with_no_install" != "x"; then
-	varpath="./lib/"
+	varpath="${PWD}/lib/"
 else
 	varpath="${prefix}/var/games/${PACKAGE}/"
 fi
@@ -179,6 +180,10 @@ AC_ARG_ENABLE(test,
 	[AS_HELP_STRING([--enable-test],      [Enables test frontend (default: disabled)])],
 	[enable_test=$enableval],
 	[enable_test=no])
+AC_ARG_ENABLE(stats,
+	[AS_HELP_STRING([--enable-stats],     [Enables stats frontend (default: disabled)])],
+	[enable_stats=$enableval],
+	[enable_stats=no])
 
 dnl Sound modules
 AC_ARG_ENABLE(sdl_mixer,
@@ -200,34 +205,16 @@ fi
 
 dnl curses checking
 if test "$enable_curses" = "yes"; then
-	AC_CHECK_LIB(curses  , initscr, found_curses=yes,found_curses=no)
-	AC_CHECK_LIB(ncurses , initscr, found_ncurses=yes,found_ncurses=no)
-	AC_CHECK_LIB(pdcurses, initscr, found_pdcurses=yes,found_pdcurses=no)
-	if test "x$found_ncurses" = "xno"; then
-		if test "x$found_pdcurses" = "xno"; then
-			if test "x$found_curses" = "xno"; then
-				with_curses=no
-			else
-				AC_DEFINE(USE_CURSES, 1, [Define to 1 if Curses or PDCurses is found, but NCurses is not.])
-				AC_DEFINE(USE_GCU, 1, [Define to 1 if using the Curses frontend.])
-				LDFLAGS="${LDFLAGS} -lcurses"
-				with_curses=yes
-			fi
-		else
-			AC_DEFINE(USE_CURSES, 1, [Define to 1 if Curses or PDCurses is found, but NCurses is not.])
-			AC_DEFINE(USE_GCU, 1, [Define to 1 if using the Curses frontend.])
-			LDFLAGS="${LDFLAGS} -lpdcurses"
-			with_curses=yes
-		fi
-	else
+	AM_PATH_NCURSESW(with_curses=yes, with_curses=no)
+	if test "$with_curses" = "yes"; then
 		AC_DEFINE(USE_NCURSES, 1, [Define to 1 if NCurses is found.])
 		AC_DEFINE(USE_GCU, 1, [Define to 1 if using the Curses frontend.])
-		LDFLAGS="${LDFLAGS} -lncurses"
-		with_curses=yes
-	fi
+		CFLAGS="${CFLAGS} ${NCURSES_CFLAGS}"
+		LDFLAGS="${LDFLAGS} ${NCURSES_LIBS}"
+	fi 
 fi
 
-AC_CHECK_FUNCS([use_default_colors can_change_color])
+AC_CHECK_FUNCS([mvwaddnwstr use_default_colors can_change_color])
 
 dnl X11 checking
 if test "$enable_x11" = "yes"; then
@@ -319,12 +306,68 @@ if test "$enable_sdl_mixer" = "yes"; then
 	fi
 fi
 
+
+LDFLAGS="${LDFLAGS} -lm"
+
+
 dnl Test checking
 if test "$enable_test" = "yes"; then
 	AC_DEFINE(USE_TEST, 1, [Define to 1 to build the test frontend])
 fi
 
-AC_CONFIG_FILES([mk/extra.mk mk/sinc@&t@lude.mk])
+dnl Stats checking
+
+LDFLAGS_SAVE="$LDFLAGS"
+if test "$enable_stats" = "yes"; then
+	# SQLite3 detection
+	SQLITE3_OK=yes
+	AC_CHECK_HEADER(sqlite3.h, [], [
+		SQLITE3_OK=missing
+		for sqlite3_path in $SEARCH_DIR_HEADERS; do
+			if test "x$ac_cv_header_sqlite3_h" != xyes; then
+				unset ac_cv_header_sqlite3_h
+				AC_CHECK_HEADER($sqlite3_path/sqlite3.h,
+					[
+						SQLITE3_CFLAGS="-I$sqlite3_path"
+						SQLITE3_OK=yes
+					]
+				)
+			fi
+		done
+	])
+	if test "x$SQLITE3_OK" = xyes; then
+		AC_CHECK_LIB(sqlite3, sqlite3_open, [
+			SQLITE3_LDFLAGS="-lsqlite3"
+		], [
+			SQLITE3_OK=missing
+			for sqlite3_path in $SEARCH_DIR_LIBS; do
+				if test "x$ac_cv_lib_sqlite3_sqlite3_open" != xyes; then
+					unset ac_cv_lib_sqlite3_sqlite3_open
+					LDFLAGS="$LDFLAGS_SAVE -L$sqlite3_path"
+					AC_CHECK_LIB(sqlite3, sqlite3_open, [
+						SQLITE3_LDFLAGS="-L$sqlite3_path -lsqlite3"
+						SQLITE3_OK=yes
+					])
+				fi
+			done	
+		])
+	fi
+	if test "x$SQLITE3_OK" = xyes; then
+		AC_DEFINE(USE_STATS, 1, [Define to 1 to build the stats frontend])
+		CFLAGS="${CFLAGS} ${SQLITE3_CFLAGS}"
+		LDFLAGS="${LDFLAGS_SAVE} ${SQLITE3_LDFLAGS}"
+		AC_SUBST(USE_STATS, 1)
+	else
+		AC_MSG_ERROR(Could not find sqlite3 library; disabling stats)
+		enable_stats=no
+		AC_DEFINE(USE_STATS, 0, [Define to 0 to omit the stats frontend])
+		LDFLAGS="$LDFLAGS_SAVE"
+		AC_SUBST(USE_STATS, 0)
+	fi
+fi
+
+
+AC_CONFIG_FILES([mk/buildsys.mk mk/extra.mk mk/sinc@&t@lude.mk])
 AC_OUTPUT
 
 if test "x$with_private_dirs" = "xyes"; then
@@ -408,6 +451,12 @@ if test "$enable_test" = "yes"; then
 	echo "- Test                                    Yes"
 else
     echo "- Test                                    No"
+fi
+
+if test "$enable_stats" = "yes"; then
+	echo "- Stats                                   Yes"
+else
+    echo "- Stats                                   No"
 fi
 
 echo

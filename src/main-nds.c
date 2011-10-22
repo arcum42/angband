@@ -1,19 +1,29 @@
-/* File: main-nds.c */
-
-/* Purpose: Main file for playing on the Nintendo DS */
-
 /*
- * This file written by Nick McConnell, based on the template by Ben Harrison 
- * (benh@phial.com).  Many of the routines are based on, or lifted directly
- * from, brettk's excellent NethackDS:
- *         http://frodo.dyn.gno.org/~brettk/NetHackDS
+ * File: main-nds.c
+ * Purpose: Main file for playing on the Nintendo DS
  *
+ * Copyright (c) 2010 Nick McConnell
+ *
+ * Many of the routines are based on (or lifted directly from) brettk's
+ * excellent NethackDS: http://frodo.dyn.gno.org/~brettk/NetHackDS
+ *
+ * This work is free software; you can redistribute it and/or modify it
+ * under the terms of either:
+ *
+ * a) the GNU General Public License as published by the Free Software
+ *    Foundation, version 2, or
+ *
+ * b) the "Angband licence":
+ *    This software may be copied and distributed for educational, research,
+ *    and not for profit purposes provided that this copyright and statement
+ *    are included in all such copies.  Other copyrights may also apply.
  */
 
 #include <nds.h>
 #include <fat.h>
 
 #include "angband.h"
+#include "buildid.h"
 #include "main.h"
 
 /* DS includes */
@@ -1614,7 +1624,7 @@ bool nds_load_tiles()
 /*
  * Display warning message (see "z-util.c")
  */
-static void hook_plog(cptr str)
+static void hook_plog(const char *str)
 {
   /* Warning */
   if (str)
@@ -1627,7 +1637,7 @@ static void hook_plog(cptr str)
 /*
  * Display error message and quit (see "z-util.c")
  */
-static void hook_quit(cptr str)
+static void hook_quit(const char *str)
 {
   int i, j;
   
@@ -1792,7 +1802,7 @@ int main(int argc, char *argv[])
     raw_print("Cannot create lock file");
   } else {
     hackpid = 1;
-    write(fd, (genericptr_t) &hackpid, sizeof(hackpid));
+    write(fd, (genericonst char *_t) &hackpid, sizeof(hackpid));
     close(fd);
   }
   
@@ -1879,7 +1889,7 @@ int main(int argc, char *argv[])
       for (i = 0; i < 50; i++)
 	draw_tile(i % 10, i/10, i+600);      
       /* Wait for response */
-      pause_line(23);
+      pause_line(Term);
       
       /* Play the game */
       play_game(new_game);

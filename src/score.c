@@ -16,6 +16,13 @@
  *    are included in all such copies.  Other copyrights may also apply.
  */
 #include "angband.h"
+#include "buildid.h"
+
+
+/*
+ * Maximum number of high scores in the high score file
+ */
+#define MAX_HISCORES    100
 
 
 /*
@@ -233,7 +240,7 @@ static void highscore_write(const high_score scores[], size_t sz)
  */
 static void display_scores_aux(const high_score scores[], int from, int to, int highlight)
 {
-	char ch;
+	struct keypress ch;
 
 	int j, k, n, place;
 	int count;
@@ -265,11 +272,10 @@ static void display_scores_aux(const high_score scores[], int from, int to, int 
 		Term_clear();
 
 		/* Title */
-		put_str(format("%s Hall of Fame", VERSION_NAME), 0, 26);
-
-		/* Indicate non-top scores */
 		if (k > 0)
-			put_str(format("(from position %d)", place), 0, 40);
+			put_str(format("%s Hall of Fame (from position %d)", VERSION_NAME, place), 0, 21);
+		else
+			put_str(format("%s Hall of Fame", VERSION_NAME), 0, 30);
 
 
 		/* Dump 5 entries */
@@ -280,7 +286,7 @@ static void display_scores_aux(const high_score scores[], int from, int to, int 
 			byte attr;
 
 			int clev, mlev, cdun, mdun;
-			cptr user, gold, when, aged;
+			const char *user, *gold, *when, *aged;
 			struct player_class *c;
 			struct player_race *r;
 
@@ -350,7 +356,7 @@ static void display_scores_aux(const high_score scores[], int from, int to, int 
 		prt("", 23, 0);
 
 		/* Hack -- notice Escape */
-		if (ch == ESCAPE) break;
+		if (ch.code == ESCAPE) break;
 	}
 
 	return;
@@ -361,7 +367,7 @@ static void build_score(high_score *entry, const char *died_from, time_t *death_
 	WIPE(entry, high_score);
 
 	/* Save the version */
-	strnfmt(entry->what, sizeof(entry->what), "%s", VERSION_STRING);
+	strnfmt(entry->what, sizeof(entry->what), "%s", buildid);
 
 	/* Calculate and save the points */
 	strnfmt(entry->pts, sizeof(entry->pts), "%9lu", (long)total_points());

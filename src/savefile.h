@@ -20,7 +20,7 @@ bool savefile_save(const char *path);
 /*** Ignore these ***/
 
 /* Utility */
-void note(cptr msg);
+void note(const char *msg);
 
 /* Writing bits */
 void wr_byte(byte v);
@@ -28,7 +28,7 @@ void wr_u16b(u16b v);
 void wr_s16b(s16b v);
 void wr_u32b(u32b v);
 void wr_s32b(s32b v);
-void wr_string(cptr str);
+void wr_string(const char *str);
 void pad_bytes(int n);
 
 /* Reading bits */
@@ -55,18 +55,31 @@ int rd_artifacts(void);
 int rd_player(void);
 int rd_squelch(void);
 int rd_misc(void);
+int rd_misc_2(void);
 int rd_player_hp(void);
 int rd_player_spells(void);
 int rd_randarts_1(void);
 int rd_randarts_2(void);
+int rd_randarts_3(void);
 int rd_inventory_1(void);
 int rd_inventory_2(void);
+int rd_inventory_3(void);
+int rd_inventory_4(void);
 int rd_stores_1(void);
 int rd_stores_2(void);
+int rd_stores_3(void);
+int rd_stores_4(void);
 int rd_dungeon(void);
 int rd_objects_1(void);
 int rd_objects_2(void);
-int rd_monsters(void);
+int rd_objects_3(void);
+int rd_objects_4(void);
+int rd_monsters_1(void);
+int rd_monsters_2(void);
+int rd_monsters_3(void);
+int rd_monsters_4(void);
+int rd_monsters_5(void);
+int rd_monsters_6(void);
 int rd_ghost(void);
 int rd_history(void);
 

@@ -59,7 +59,9 @@ typedef struct maxima
 	u16b a_max;       /**< Maximum number of artifact kinds */
 	u16b e_max;       /**< Maximum number of ego-item kinds */
 	u16b r_max;       /**< Maximum number of monster races */
+	u16b mp_max;	  /**< Maximum number of monster pain message sets */
 	u16b s_max;       /**< Maximum number of magic spells */
+	u16b pit_max;	  /**< Maximum number of monster pit types */
 
 	u16b o_max;       /**< Maximum number of objects on a given level */
 	u16b m_max;       /**< Maximum number of monsters on a given level */
@@ -91,10 +93,10 @@ typedef struct feature
 	u32b flags;    /**< Terrain flags */
 
 	byte d_attr;   /**< Default feature attribute */
-	char d_char;   /**< Default feature character */
+	wchar_t d_char;   /**< Default feature character */
 
-	byte x_attr;   /**< Desired feature attribute (set by user/pref file) */
-	char x_char;   /**< Desired feature character (set by user/pref file) */
+	byte x_attr[3];   /**< Desired feature attribute (set by user/pref file) */
+	wchar_t x_char[3];   /**< Desired feature character (set by user/pref file) */
 } feature_type;
 
 
@@ -196,19 +198,19 @@ struct history_info
 	char event[80];	/* The text of the item */
 };
 
-
 enum grid_light_level
 {
-	LIGHT_TORCH,
-	LIGHT_GLOW,
-	LIGHT_DARK
+	FEAT_LIGHTING_BRIGHT = 0,
+	FEAT_LIGHTING_LIT,
+	FEAT_LIGHTING_DARK,
+	FEAT_LIGHTING_MAX
 };
 
 typedef struct
 {
 	u32b m_idx;		/* Monster index */
 	u32b f_idx;		/* Feature index */
-	u32b first_k_idx;	/* The "Kind" of the first item on the grid */
+	struct object_kind *first_kind;	/* The "kind" of the first item on the grid */
 	bool multiple_objects;	/* Is there more than one item there? */
 
 	enum grid_light_level lighting; /* Light level */

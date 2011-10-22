@@ -26,6 +26,7 @@
 #include "z-virt.h"
 #include "z-rand.h"
 #include "z-term.h"
+#include "z-quark.h"
 #include "z-msg.h"
 
 /*
@@ -36,14 +37,13 @@
 #include "option.h"
 #include "types.h"
 #include "game-cmd.h"
-#include "object/constants.h"
-#include "object/types.h"
+#include "object/obj-flag.h"
 #include "object/object.h"
-#include "monster/types.h"
+#include "monster/constants.h"
+#include "monster/monster.h"
 #include "player/types.h"
 #include "player/player.h"
 #include "store.h"
-#include "x-char.h"
 
 #include "ui.h"
 #include "z-type.h"

@@ -21,9 +21,10 @@
 #include "attack.h"
 #include "effects.h"
 #include "cmds.h"
-#include "tvalsval.h"
+#include "object/tvalsval.h"
 #include "z-textblock.h"
-#include "slays.h"
+#include "object/slays.h"
+#include "object/pval.h"
 
 /*
  * Describes a flag-name pair.
@@ -200,7 +201,7 @@ static bool describe_curses(textblock *tb, const object_type *o_ptr,
 static bool describe_stats(textblock *tb, const object_type *o_ptr,
 		bitflag flags[MAX_PVALS][OF_SIZE], oinfo_detail_t mode)
 {
-	cptr descs[N_ELEMENTS(pval_flags)];
+	const char *descs[N_ELEMENTS(pval_flags)];
 	size_t count, i;
 	bool full = mode & OINFO_FULL;
 	bool dummy = mode & OINFO_DUMMY;
@@ -375,9 +376,9 @@ static bool describe_slays(textblock *tb, const bitflag flags[OF_SIZE],
 	size_t count;
 	bool fulldesc;
 
-	flags_init(slay_mask, OF_SIZE, OF_SLAY_MASK, FLAG_END);
-	flags_init(kill_mask, OF_SIZE, OF_KILL_MASK, FLAG_END);
-	flags_init(brand_mask, OF_SIZE, OF_BRAND_MASK, FLAG_END);
+	create_mask(slay_mask, FALSE, OFT_SLAY, OFT_MAX);
+	create_mask(kill_mask, FALSE, OFT_KILL, OFT_MAX);
+	create_mask(brand_mask, FALSE, OFT_BRAND, OFT_MAX);
 
 	if (tval == TV_SWORD || tval == TV_HAFTED || tval == TV_POLEARM ||
 			tval == TV_DIGGING || tval == TV_BOW || tval == TV_SHOT ||
@@ -488,6 +489,251 @@ static void calculate_missile_crits(player_state *state, int weight,
 	*div  = 100;
 }
 
+
+/*
+ * Describe blows.
+ */
+static bool describe_blows(textblock *tb, const object_type *o_ptr,
+		player_state state, bitflag f[OF_SIZE])
+{
+	int str_plus, dex_plus, old_blows = 0, new_blows, extra_blows;
+	int str_faster = -1, str_done = -1;
+	int dex_plus_bound;
+	int str_plus_bound;
+	int i;
+
+	bitflag tmp_f[OF_SIZE];
+
+	dex_plus_bound = STAT_RANGE - state.stat_ind[A_DEX];
+	str_plus_bound = STAT_RANGE - state.stat_ind[A_STR];
+
+	/* Write to the text block */
+	textblock_append_c(tb, TERM_L_GREEN, "%d.%d ",
+			state.num_blows / 100, (state.num_blows / 10) % 10);
+	textblock_append(tb, "blow%s/round.\n",
+			(state.num_blows > 100) ? "s" : "");
+
+	/* Check to see if extra STR or DEX would yield extra blows */
+	old_blows = state.num_blows;
+	extra_blows = 0;
+
+	/* First we need to look for extra blows on other items, as
+	 * state does not track these */
+	for (i = INVEN_BOW; i < INVEN_TOTAL; i++)
+	{
+		if (!p_ptr->inventory[i].kind)
+			continue;
+
+		object_flags_known(&p_ptr->inventory[i], tmp_f);
+
+		if (of_has(tmp_f, OF_BLOWS))
+			extra_blows += p_ptr->inventory[i].pval[which_pval(&p_ptr->inventory[i], OF_BLOWS)];
+	}
+
+	/* Then we add blows from the weapon being examined */
+	if (of_has(f, OF_BLOWS))
+		extra_blows += o_ptr->pval[which_pval(o_ptr, OF_BLOWS)];
+
+	/* Then we check for extra "real" blows */
+	for (dex_plus = 0; dex_plus < dex_plus_bound; dex_plus++)
+	{
+		for (str_plus = 0; str_plus < str_plus_bound; str_plus++)
+        {
+			state.stat_ind[A_STR] += str_plus;
+			state.stat_ind[A_DEX] += dex_plus;
+			new_blows = calc_blows(o_ptr, &state, extra_blows);
+
+			/* Test to make sure that this extra blow is a
+			 * new str/dex combination, not a repeat
+			 */
+			if ((new_blows - new_blows % 10) > (old_blows - old_blows % 10) &&
+				(str_plus < str_done ||
+				str_done == -1))
+			{
+				textblock_append(tb, "With +%d STR and +%d DEX you would get %d.%d blows\n",
+					str_plus, dex_plus, (new_blows / 100),
+					(new_blows / 10) % 10);
+				state.stat_ind[A_STR] -= str_plus;
+				state.stat_ind[A_DEX] -= dex_plus;
+				str_done = str_plus;
+				break;
+			}
+
+			/* If the combination doesn't increment
+			 * the displayed blows number, it might still
+			 * take a little less energy
+			 */
+			if (new_blows > old_blows &&
+				(str_plus < str_faster ||
+				str_faster == -1) &&
+				(str_plus < str_done ||
+				str_done == -1))
+			{
+				textblock_append(tb, "With +%d STR and +%d DEX you would attack a bit faster\n",
+					str_plus, dex_plus);
+				state.stat_ind[A_STR] -= str_plus;
+				state.stat_ind[A_DEX] -= dex_plus;
+				str_faster = str_plus;
+				continue;
+			}
+
+			state.stat_ind[A_STR] -= str_plus;
+			state.stat_ind[A_DEX] -= dex_plus;
+		}
+	}
+
+	return TRUE;
+}
+
+
+/*
+ * Describe damage.
+ */
+static bool describe_damage(textblock *tb, const object_type *o_ptr,
+		player_state state, bitflag f[OF_SIZE])
+{
+	const char *desc[SL_MAX] = { 0 };
+	int i;
+	int mult[SL_MAX];
+	int cnt, dam, total_dam, plus = 0;
+	int xtra_postcrit = 0, xtra_precrit = 0;
+	int crit_mult, crit_div, crit_add;
+	int old_blows = 0;
+	object_type *bow = &p_ptr->inventory[INVEN_BOW];
+
+	bitflag tmp_f[OF_SIZE], mask[OF_SIZE];
+
+	bool weapon = (wield_slot(o_ptr) == INVEN_WIELD);
+	bool ammo   = (p_ptr->state.ammo_tval == o_ptr->tval) &&
+	              (bow->kind);
+	int multiplier = 1;
+
+	/* Create the "all slays" mask */
+	create_mask(mask, FALSE, OFT_SLAY, OFT_KILL, OFT_BRAND, OFT_MAX);
+
+	if (weapon)
+	{
+		dam = ((o_ptr->ds + 1) * o_ptr->dd * 5);
+
+		xtra_postcrit = state.dis_to_d * 10;
+		if (object_attack_plusses_are_visible(o_ptr))
+		{
+			xtra_precrit += o_ptr->to_d * 10;
+			plus += o_ptr->to_h;
+		}
+
+		calculate_melee_crits(&state, o_ptr->weight, plus,
+				&crit_mult, &crit_add, &crit_div);
+
+		old_blows = state.num_blows;
+	}
+	else /* Ammo */
+	{
+		if (object_attack_plusses_are_visible(o_ptr))
+			plus += o_ptr->to_h;
+
+		calculate_missile_crits(&p_ptr->state, o_ptr->weight, plus,
+				&crit_mult, &crit_add, &crit_div);
+
+		/* Calculate damage */
+		dam = ((o_ptr->ds + 1) * o_ptr->dd * 5);
+
+		if (object_attack_plusses_are_visible(o_ptr))
+			dam += (o_ptr->to_d * 10);
+		if (object_attack_plusses_are_visible(bow))
+			dam += (bow->to_d * 10);
+
+		/* Apply brands/slays from the shooter to the ammo, but only if known
+		 * Note that this is not dependent on mode, so that viewing shop-held
+		 * ammo (fully known) does not leak information about launcher */
+		object_flags_known(bow, tmp_f);
+		of_union(f, tmp_f);
+	}
+
+	/* Collect slays */
+	/* Melee weapons get slays and brands from other items now */
+	if (weapon)
+	{
+		bool nonweap_slay = FALSE;
+
+		for (i = INVEN_LEFT; i < INVEN_TOTAL; i++)
+		{
+			if (!p_ptr->inventory[i].kind)
+				continue;
+
+			object_flags_known(&p_ptr->inventory[i], tmp_f);
+
+			/* Strip out non-slays */
+			of_inter(tmp_f, mask);
+
+			if (of_union(f, tmp_f))
+				nonweap_slay = TRUE;
+		}
+
+		if (nonweap_slay)
+			textblock_append(tb, "This weapon may benefit from one or more off-weapon brands or slays.\n");
+	}
+
+	textblock_append(tb, "Average damage/round: ");
+
+	if (ammo) multiplier = p_ptr->state.ammo_mult;
+
+	/* Output damage for creatures effected by the brands or slays */
+	cnt = list_slays(f, mask, desc, NULL, mult, TRUE);
+	for (i = 0; i < cnt; i++)
+	{
+		/* ammo mult adds fully, melee mult is times 1, so adds 1 less */
+		int melee_adj_mult = ammo ? 0 : 1; 
+
+		/* Include bonus damage and slay in stated average */
+		total_dam = dam * (multiplier + mult[i] - melee_adj_mult) + xtra_precrit;
+		total_dam = (total_dam * crit_mult + crit_add) / crit_div;
+		total_dam += xtra_postcrit;
+
+		if (weapon) 
+			total_dam = (total_dam * old_blows) / 100;
+		else
+			total_dam *= p_ptr->state.num_shots;
+
+		if (total_dam <= 0)
+			textblock_append_c(tb, TERM_L_RED, "%d", 0);
+		else if (total_dam % 10)
+			textblock_append_c(tb, TERM_L_GREEN, "%d.%d",
+					total_dam / 10, total_dam % 10);
+		else
+			textblock_append_c(tb, TERM_L_GREEN, "%d", total_dam / 10);
+
+		textblock_append(tb, " vs. %s, ", desc[i]);
+	}
+
+	if (cnt) textblock_append(tb, "and ");
+
+	/* Include bonus damage in stated average */
+	total_dam = dam * multiplier + xtra_precrit;
+	total_dam = (total_dam * crit_mult + crit_add) / crit_div;
+	total_dam += xtra_postcrit;
+
+	/* Normal damage, not considering brands or slays */
+	if (weapon)
+		total_dam = (total_dam * old_blows) / 100;
+	else
+		total_dam *= p_ptr->state.num_shots;
+
+	if (total_dam <= 0)
+		textblock_append_c(tb, TERM_L_RED, "%d", 0);
+	else if (total_dam % 10)
+		textblock_append_c(tb, TERM_L_GREEN, "%d.%d",
+				total_dam / 10, total_dam % 10);
+	else
+		textblock_append_c(tb, TERM_L_GREEN, "%d", total_dam / 10);
+
+	if (cnt) textblock_append(tb, " vs. others");
+	textblock_append(tb, ".\n");
+
+	return true;
+}
+
+
 /*
  * Describe combat advantages.
  */
@@ -496,22 +742,16 @@ static bool describe_combat(textblock *tb, const object_type *o_ptr,
 {
 	bool full = mode & OINFO_FULL;
 
-	const char *desc[SL_MAX] = { 0 };
-	int i;
-	int mult[SL_MAX];
-	int cnt, dam, total_dam, plus = 0;
-	int xtra_postcrit = 0, xtra_precrit = 0;
-	int crit_mult, crit_div, crit_add;
-	int str_plus, dex_plus, old_blows = 0, new_blows, extra_blows;
-	int str_done = -1;
-	object_type *j_ptr = &p_ptr->inventory[INVEN_BOW];
+	object_type *bow = &p_ptr->inventory[INVEN_BOW];
 
-	bitflag f[OF_SIZE], tmp_f[OF_SIZE], mask[OF_SIZE];
+	bitflag f[OF_SIZE];
 
 	bool weapon = (wield_slot(o_ptr) == INVEN_WIELD);
 	bool ammo   = (p_ptr->state.ammo_tval == o_ptr->tval) &&
-	              (j_ptr->k_idx);
-	int multiplier = 1;
+	              (bow->kind);
+
+	/* The player's hypothetical state, were they to wield this item */
+	player_state state;
 
 	/* Abort if we've nothing to say */
 	if (mode & OINFO_DUMMY) return FALSE;
@@ -538,14 +778,6 @@ static bool describe_combat(textblock *tb, const object_type *o_ptr,
 
 	if (weapon)
 	{
-		/*
-		 * Get the player's hypothetical state, were they to be
-		 * wielding this item.
-		 */
-		player_state state;
-		int dex_plus_bound;
-		int str_plus_bound;
-
 		object_type inven[INVEN_TOTAL];
 
 		memcpy(inven, p_ptr->inventory, INVEN_TOTAL * sizeof(object_type));
@@ -553,181 +785,29 @@ static bool describe_combat(textblock *tb, const object_type *o_ptr,
 
 		if (full) object_know_all_flags(&inven[INVEN_WIELD]);
 
+		/* Calculate the player's hypothetical state */
 		calc_bonuses(inven, &state, TRUE);
-		dex_plus_bound = STAT_RANGE - state.stat_ind[A_DEX];
-		str_plus_bound = STAT_RANGE - state.stat_ind[A_STR];
-
-		dam = ((o_ptr->ds + 1) * o_ptr->dd * 5);
-
-		xtra_postcrit = state.dis_to_d * 10;
-		if (object_attack_plusses_are_visible(o_ptr))
-		{
-			xtra_precrit += o_ptr->to_d * 10;
-			plus += o_ptr->to_h;
-		}
-
-		calculate_melee_crits(&state, o_ptr->weight, plus,
-				&crit_mult, &crit_add, &crit_div);
 
 		/* Warn about heavy weapons */
 		if (adj_str_hold[state.stat_ind[A_STR]] < o_ptr->weight / 10)
 			textblock_append_c(tb, TERM_L_RED, "You are too weak to use this weapon.\n");
 
-		textblock_append_c(tb, TERM_L_GREEN, "%d.%d ",
-				state.num_blow / 100, (state.num_blow / 10) % 10);
-		textblock_append(tb, "blow%s/round.\n",
-				(state.num_blow > 100) ? "s" : "");
-
-		/* Check to see if extra STR or DEX would yield extra blows */
-		old_blows = state.num_blow;
-		extra_blows = 0;
-
-		/* First we need to look for extra blows on other items, as
-		 * state does not track these */
-		for (i = INVEN_BOW; i < INVEN_TOTAL; i++)
-		{
-			object_flags_known(&p_ptr->inventory[i], tmp_f);
-
-			if (of_has(tmp_f, OF_BLOWS))
-				extra_blows += p_ptr->inventory[i].pval[which_pval(&p_ptr->inventory[i], OF_BLOWS)];
-		}
-
-		/* Then we add blows from the weapon being examined */
-		if (of_has(f, OF_BLOWS))
-			extra_blows += o_ptr->pval[which_pval(o_ptr, OF_BLOWS)];
-
-		/* Then we check for extra "real" blows */
-		for (dex_plus = 0; dex_plus < dex_plus_bound; dex_plus++)
-		{
-			for (str_plus = 0; str_plus < str_plus_bound; str_plus++)
-	        {
-				state.stat_ind[A_STR] += str_plus;
-				state.stat_ind[A_DEX] += dex_plus;
-				new_blows = calc_blows(o_ptr, &state, extra_blows);
-
-				/* Test to make sure that this extra blow is a
-				 * new str/dex combination, not a repeat
-				 */
-				if (new_blows > old_blows &&
-					(str_plus < str_done ||
-					str_done == -1))
-				{
-					textblock_append(tb, "With an additional %d strength and %d dex you would get %d.%d blows\n",
-						str_plus, dex_plus, (new_blows / 100),
-						(new_blows / 10) % 10);
-					state.stat_ind[A_STR] -= str_plus;
-					state.stat_ind[A_DEX] -= dex_plus;
-					str_done = str_plus;
-					break;
-				}
-
-				state.stat_ind[A_STR] -= str_plus;
-				state.stat_ind[A_DEX] -= dex_plus;
-			}
-		}
+		/* Describe blows */
+		describe_blows(tb, o_ptr, state, f);
 	}
-	else
+	else /* Ammo */
 	{
+		/* Range of the weapon */
 		int tdis = 6 + 2 * p_ptr->state.ammo_mult;
 
-		if (object_attack_plusses_are_visible(o_ptr))
-			plus += o_ptr->to_h;
-
-		calculate_missile_crits(&p_ptr->state, o_ptr->weight, plus,
-				&crit_mult, &crit_add, &crit_div);
-
-		/* Calculate damage */
-		dam = ((o_ptr->ds + 1) * o_ptr->dd * 5);
-
-		if (object_attack_plusses_are_visible(o_ptr))
-			dam += (o_ptr->to_d * 10);
-		if (object_attack_plusses_are_visible(j_ptr))
-			dam += (j_ptr->to_d * 10);
-
-		/* Apply brands/slays from the shooter to the ammo, but only if known
-		 * Note that this is not dependent on mode, so that viewing shop-held
-		 * ammo (fully known) does not leak information about launcher */
-		object_flags_known(j_ptr, tmp_f);
-		of_union(f, tmp_f);
-
+		/* Output the range */
 		textblock_append(tb, "Hits targets up to ");
 		textblock_append_c(tb, TERM_L_GREEN, format("%d", tdis * 10));
 		textblock_append(tb, " feet away.\n");
 	}
 
-	/* Collect slays */
-	/* Melee weapons get slays and brands from other items now */
-	if (weapon)
-	{
-		bool nonweap = FALSE;
-
-		for (i = INVEN_LEFT; i < INVEN_TOTAL; i++)
-		{
-			object_flags_known(&p_ptr->inventory[i], tmp_f);
-
-			flags_mask(tmp_f, OF_SIZE, OF_ALL_SLAY_MASK, FLAG_END);
-
-			if (of_union(f, tmp_f))
-				nonweap = TRUE;
-		}
-
-		if (nonweap)
-			textblock_append(tb, "This weapon may benefit from one or more off-weapon brands or slays.\n");
-	}
-
-	textblock_append(tb, "Average damage/round: ");
-
-	if (ammo) multiplier = p_ptr->state.ammo_mult;
-
-	flags_init(mask, OF_SIZE, OF_ALL_SLAY_MASK, FLAG_END);
-
-	cnt = list_slays(f, mask, desc, NULL, mult, TRUE);
-	for (i = 0; i < cnt; i++)
-	{
-		int melee_adj_mult = ammo ? 0 : 1; /* ammo mult adds fully, melee mult is times 1, so adds 1 less */
-		/* Include bonus damage and slay in stated average */
-		total_dam = dam * (multiplier + mult[i] - melee_adj_mult) + xtra_precrit;
-		total_dam = (total_dam * crit_mult + crit_add) / crit_div;
-		total_dam += xtra_postcrit;
-		if (weapon) 
-			total_dam = (total_dam * old_blows) / 100;
-		else
-			total_dam *= p_ptr->state.num_fire;
-		
-
-		if (total_dam <= 0)
-			textblock_append_c(tb, TERM_L_RED, "%d", 0);
-		else if (total_dam % 10)
-			textblock_append_c(tb, TERM_L_GREEN, "%d.%d",
-					total_dam / 10, total_dam % 10);
-		else
-			textblock_append_c(tb, TERM_L_GREEN, "%d", total_dam / 10);
-
-
-		textblock_append(tb, " vs. %s, ", desc[i]);
-	}
-
-	if (cnt) textblock_append(tb, "and ");
-
-	/* Include bonus damage in stated average */
-	total_dam = dam * multiplier + xtra_precrit;
-	total_dam = (total_dam * crit_mult + crit_add) / crit_div;
-	total_dam += xtra_postcrit;
-	if (weapon)
-		total_dam = (total_dam * old_blows) / 100;
-	else
-		total_dam *= p_ptr->state.num_fire;
-
-	if (total_dam <= 0)
-		textblock_append_c(tb, TERM_L_RED, "%d", 0);
-	else if (total_dam % 10)
-		textblock_append_c(tb, TERM_L_GREEN, "%d.%d",
-				total_dam / 10, total_dam % 10);
-	else
-		textblock_append_c(tb, TERM_L_GREEN, "%d", total_dam / 10);
-
-	if (cnt) textblock_append(tb, " vs. others");
-	textblock_append(tb, ".\n");
+	/* Describe damage */
+	describe_damage(tb, o_ptr, state, f);
 
 	/* Note the impact flag */
 	if (of_has(f, OF_IMPACT))
@@ -736,13 +816,15 @@ static bool describe_combat(textblock *tb, const object_type *o_ptr,
 	/* Add breakage chance */
 	if (ammo)
 	{
-		textblock_append_c(tb, TERM_L_GREEN, "%d%%", breakage_chance(o_ptr));
+		int chance = breakage_chance(o_ptr, TRUE);
+		textblock_append_c(tb, TERM_L_GREEN, "%d%%", chance);
 		textblock_append(tb, " chance of breaking upon contact.\n");
 	}
 
-	/* You always have something to say... */
+	/* Something has been said */
 	return TRUE;
 }
+
 
 /*
  * Describe objects that can be used for digging.
@@ -867,28 +949,23 @@ static bool describe_light(textblock *tb, const object_type *o_ptr,
 {
 	int rad = 0;
 
-	bool artifact = artifact_p(o_ptr);
+	bool artifact = o_ptr->artifact ? TRUE : FALSE;
 	bool no_fuel = of_has(flags, OF_NO_FUEL) ? TRUE : FALSE;
 	bool is_light = (o_ptr->tval == TV_LIGHT) ? TRUE : FALSE;
 
-	if (o_ptr->tval != TV_LIGHT && !of_has(flags, OF_LIGHT))
+	if (!is_light && !of_has(flags, OF_LIGHT))
 		return FALSE;
 
 	/* Work out radius */
-	if (artifact && is_light)
-		rad = 3;
-	else if (is_light)
-		rad = 2;
-	if (of_has(flags, OF_LIGHT))
-		rad++;
+	rad = o_ptr->pval[which_pval(o_ptr, OF_LIGHT)];
 
 	/* Describe here */
 	textblock_append(tb, "Radius ");
 	textblock_append_c(tb, TERM_L_GREEN, format("%d", rad));
 	if (no_fuel && !artifact)
 		textblock_append(tb, " light.  No fuel required.");
-	else if (is_light && o_ptr->sval == SV_LIGHT_TORCH)
-		textblock_append(tb, " light, reduced when running out of fuel.");
+/*	else if (is_light && o_ptr->sval == SV_LIGHT_TORCH)
+		textblock_append(tb, " light, reduced when running out of fuel."); */
 	else
 		textblock_append(tb, " light.");
 
@@ -913,20 +990,17 @@ static bool describe_light(textblock *tb, const object_type *o_ptr,
 static bool describe_effect(textblock *tb, const object_type *o_ptr, bool full,
 		bool only_artifacts, bool subjective)
 {
-	const object_kind *k_ptr = &k_info[o_ptr->k_idx];
 	const char *desc;
 	random_value timeout = {0, 0, 0, 0};
 
 	int effect = 0, fail;
 
-	if (o_ptr->name1)
+	if (o_ptr->artifact)
 	{
-		const artifact_type *a_ptr = &a_info[o_ptr->name1];
-
 		if (object_effect_is_known(o_ptr) || full)
 		{
-			effect = a_ptr->effect;
-			timeout = a_ptr->time;
+			effect = o_ptr->artifact->effect;
+			timeout = o_ptr->artifact->time;
 		}
 		else if (object_effect(o_ptr))
 		{
@@ -941,12 +1015,12 @@ static bool describe_effect(textblock *tb, const object_type *o_ptr, bool full,
 
 		if (object_effect_is_known(o_ptr) || full)
 		{
-			effect = k_ptr->effect;
-			timeout = k_ptr->time;
+			effect = o_ptr->kind->effect;
+			timeout = o_ptr->kind->time;
 		}
 		else if (object_effect(o_ptr) != 0)
 		{
-			if (effect_aim(k_ptr->effect))
+			if (effect_aim(o_ptr->kind->effect))
 				textblock_append(tb, "It can be aimed.\n");
 			else if (o_ptr->tval == TV_FOOD)
 				textblock_append(tb, "It can be eaten.\n");
@@ -1034,7 +1108,7 @@ static bool describe_effect(textblock *tb, const object_type *o_ptr, bool full,
 }
 
 
-bool describe_origin(textblock *tb, const object_type *o_ptr)
+static bool describe_origin(textblock *tb, const object_type *o_ptr)
 {
 	char origin_text[80];
 
@@ -1048,6 +1122,7 @@ bool describe_origin(textblock *tb, const object_type *o_ptr)
 	{
 		case ORIGIN_NONE:
 		case ORIGIN_MIXED:
+		case ORIGIN_STOLEN:
 			return FALSE;
 
 		case ORIGIN_BIRTH:
@@ -1064,9 +1139,51 @@ bool describe_origin(textblock *tb, const object_type *o_ptr)
 			         origin_text);
  			break;
 
+		case ORIGIN_PIT:
+			textblock_append(tb, "Found lying on the floor in a pit at %s.\n",
+			         origin_text);
+ 			break;
+
+		case ORIGIN_VAULT:
+			textblock_append(tb, "Found lying on the floor in a vault at %s.\n",
+			         origin_text);
+ 			break;
+
+		case ORIGIN_SPECIAL:
+			textblock_append(tb, "Found lying on the floor of a special room at %s.\n",
+			         origin_text);
+ 			break;
+
+		case ORIGIN_LABYRINTH:
+			textblock_append(tb, "Found lying on the floor of a labyrinth at %s.\n",
+			         origin_text);
+ 			break;
+
+		case ORIGIN_CAVERN:
+			textblock_append(tb, "Found lying on the floor of a cavern at %s.\n",
+			         origin_text);
+ 			break;
+
+		case ORIGIN_RUBBLE:
+			textblock_append(tb, "Found under some rubble at %s.\n",
+			         origin_text);
+ 			break;
+
 		case ORIGIN_DROP:
+		case ORIGIN_DROP_SPECIAL:
+		case ORIGIN_DROP_PIT:
+		case ORIGIN_DROP_VAULT:
+		case ORIGIN_DROP_SUMMON:
+		case ORIGIN_DROP_BREED:
+		case ORIGIN_DROP_POLY:
+		case ORIGIN_DROP_WIZARD:
 		{
-			const char *name = r_info[o_ptr->origin_xtra].name;
+			const char *name;
+
+			if (r_info[o_ptr->origin_xtra].ridx)
+				name = r_info[o_ptr->origin_xtra].name;
+			else
+				name = "monster lost to history";
 
 			textblock_append(tb, "Dropped by ");
 
@@ -1109,31 +1226,38 @@ bool describe_origin(textblock *tb, const object_type *o_ptr)
 	return TRUE;
 }
 
-static void describe_flavor_text(textblock *tb, const object_type *o_ptr)
+/*
+ * Print an item's flavour text.
+ *
+ * \param tb is the textblock to which we are adding.
+ * \param o_ptr is the object we are describing.
+ * \param ego is whether we're describing an ego template (as opposed to a
+ * real object)
+ */
+static void describe_flavor_text(textblock *tb, const object_type *o_ptr,
+	bool ego)
 {
 	/* Display the known artifact description */
-	if (!OPT(birth_randarts) && o_ptr->name1 &&
-			object_is_known(o_ptr) && a_info[o_ptr->name1].text)
-	{
-		textblock_append(tb, "%s\n\n", a_info[o_ptr->name1].text);
-	}
+	if (!OPT(birth_randarts) && o_ptr->artifact &&
+			object_is_known(o_ptr) && o_ptr->artifact->text)
+		textblock_append(tb, "%s\n\n", o_ptr->artifact->text);
 
 	/* Display the known object description */
-	else if (object_flavor_is_aware(o_ptr) || object_is_known(o_ptr))
+	else if (object_flavor_is_aware(o_ptr) || object_is_known(o_ptr) || ego)
 	{
 		bool did_desc = FALSE;
 
-		if (k_info[o_ptr->k_idx].text)
+		if (!ego && o_ptr->kind->text)
 		{
-			textblock_append(tb, "%s", k_info[o_ptr->k_idx].text);
+			textblock_append(tb, "%s", o_ptr->kind->text);
 			did_desc = TRUE;
 		}
 
 		/* Display an additional ego-item description */
-		if (object_ego_is_visible(o_ptr) && e_info[o_ptr->name2].text)
+		if ((ego || object_ego_is_visible(o_ptr)) && o_ptr->ego->text)
 		{
 			if (did_desc) textblock_append(tb, "  ");
-			textblock_append(tb, "%s\n\n", e_info[o_ptr->name2].text);
+			textblock_append(tb, "%s\n\n", o_ptr->ego->text);
 		}
 		else if (did_desc)
 		{
@@ -1143,11 +1267,9 @@ static void describe_flavor_text(textblock *tb, const object_type *o_ptr)
 }
 
 
-bool describe_ego(textblock *tb, const object_type *o_ptr)
+static bool describe_ego(textblock *tb, const struct ego_item *ego)
 {
-	struct ego_item *ego = &e_info[o_ptr->name2];
-
-	if (ego->name && ego->xtra)
+	if (ego && ego->xtra)
 	{
 		const char *xtra[] = { "sustain", "higher resistance", "ability" };
 		textblock_append(tb, "It provides one random %s.  ",
@@ -1187,7 +1309,7 @@ static textblock *object_info_out(const object_type *o_ptr, oinfo_detail_t mode)
 	}
 
 	if (subjective) describe_origin(tb, o_ptr);
-	if (!terse) describe_flavor_text(tb, o_ptr);
+	if (!terse) describe_flavor_text(tb, o_ptr, ego);
 
 	if (!full && !known)
 	{
@@ -1202,10 +1324,10 @@ static textblock *object_info_out(const object_type *o_ptr, oinfo_detail_t mode)
 	if (describe_ignores(tb, flags)) something = TRUE;
 	if (describe_sustains(tb, flags)) something = TRUE;
 	if (describe_misc_magic(tb, flags)) something = TRUE;
-	if (ego && describe_ego(tb, o_ptr)) something = TRUE;
+	if (ego && describe_ego(tb, o_ptr->ego)) something = TRUE;
 	if (something) textblock_append(tb, "\n");
 
-	if (describe_effect(tb, o_ptr, full, terse, subjective))
+	if (!ego && describe_effect(tb, o_ptr, full, terse, subjective))
 	{
 		something = TRUE;
 		textblock_append(tb, "\n");
@@ -1263,8 +1385,8 @@ textblock *object_info_ego(struct ego_item *ego)
 	obj.kind = kind;
 	obj.tval = kind->tval;
 	obj.sval = kind->sval;
-	obj.name2 = ego->eidx;
-	of_union(obj.flags, ego->flags);
+	obj.ego = ego;
+	ego_apply_magic(&obj, 0);
 
 	return object_info_out(&obj, OINFO_FULL | OINFO_EGO | OINFO_DUMMY);
 }

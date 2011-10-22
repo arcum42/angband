@@ -70,10 +70,10 @@ extern quality_name_struct quality_choices[TYPE_MAX];
 /* squelch.c */
 void squelch_init(void);
 void squelch_birth_init(void);
-const char *get_autoinscription(s16b kind_idx);
+const char *get_autoinscription(object_kind *kind);
 int apply_autoinscription(object_type *o_ptr);
 int remove_autoinscription(s16b kind);
-int add_autoinscription(s16b kind, cptr inscription);
+int add_autoinscription(s16b kind, const char *inscription);
 void autoinscribe_ground(void);
 void autoinscribe_pack(void);
 bool squelch_tval(int tval);
@@ -93,6 +93,6 @@ squelch_type_t squelch_type_of(const object_type *o_ptr);
 void object_squelch_flavor_of(const object_type *o_ptr);
 
 extern byte squelch_level[];
-const size_t squelch_size;
+extern const size_t squelch_size;
 
 #endif /* !SQUELCH_H */

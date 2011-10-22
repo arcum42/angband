@@ -19,11 +19,14 @@
  */
 
 #include "angband.h"
+#include "buildid.h"
 #include "button.h"
 #include "cave.h"
 #include "files.h"
 #include "game-event.h"
 #include "game-cmd.h"
+#include "monster/mon-lore.h"
+#include "monster/mon-util.h"
 #include "monster/monster.h"
 #include "object/tvalsval.h"
 #include "textui.h"
@@ -95,7 +98,7 @@ void cnv_stat(int val, char *out_val, size_t out_len)
 /*
  * Print character info at given row, column in a 13 char field
  */
-static void prt_field(cptr info, int row, int col)
+static void prt_field(const char *info, int row, int col)
 {
 	/* Dump 13 spaces to clear */
 	c_put_str(TERM_WHITE, "             ", row, col);
@@ -141,7 +144,7 @@ static void prt_stat(int stat, int row, int col)
  */
 static void prt_title(int row, int col)
 {
-	cptr p;
+	const char *p;
 
 	/* Wizard */
 	if (p_ptr->wizard)
@@ -158,7 +161,7 @@ static void prt_title(int row, int col)
 	/* Normal */
 	else
 	{
-		p = cp_ptr->title[(p_ptr->lev - 1) / 5];
+		p = p_ptr->class->title[(p_ptr->lev - 1) / 5];
 	}
 
 	prt_field(p, row, col);
@@ -240,25 +243,22 @@ static void prt_equippy(int row, int col)
 	int i;
 
 	byte a;
-	char c;
+	wchar_t c;
 
 	object_type *o_ptr;
 
 	/* No equippy chars in bigtile mode */
-	if ((tile_width > 1) || (tile_height > 1)) return;
+	if (tile_width > 1 || tile_height > 1) return;
 
 	/* Dump equippy chars */
-	for (i = INVEN_WIELD; i < INVEN_TOTAL; i++)
-	{
+	for (i = INVEN_WIELD; i < INVEN_TOTAL; i++) {
 		/* Object */
 		o_ptr = &p_ptr->inventory[i];
 
-		a = object_attr(o_ptr);
-		c = object_char(o_ptr);
-
-		/* Clear the part of the screen */
-		if (!o_ptr->k_idx)
-		{
+		if (o_ptr->kind) {
+			c = object_char(o_ptr);
+			a = object_attr(o_ptr);
+		} else {
 			c = ' ';
 			a = TERM_WHITE;
 		}
@@ -282,29 +282,12 @@ static void prt_ac(int row, int col)
 }
 
 /*
- * Calculate the hp color separately, for ports.
- */
-byte player_hp_attr(void)
-{
-	byte attr;
-	
-	if (p_ptr->chp >= p_ptr->mhp)
-		attr = TERM_L_GREEN;
-	else if (p_ptr->chp > (p_ptr->mhp * op_ptr->hitpoint_warn) / 10)
-		attr = TERM_YELLOW;
-	else
-		attr = TERM_RED;
-	
-	return attr;
-}
-
-/*
  * Prints Cur hit points
  */
 static void prt_hp(int row, int col)
 {
 	char cur_hp[32], max_hp[32];
-	byte color = player_hp_attr();
+	byte color = player_hp_attr(p_ptr);
 
 	put_str("HP ", row, col);
 
@@ -317,29 +300,12 @@ static void prt_hp(int row, int col)
 }
 
 /*
- * Calculate the sp color separately, for ports.
- */
-byte player_sp_attr(void)
-{
-	byte attr;
-	
-	if (p_ptr->csp >= p_ptr->msp)
-		attr = TERM_L_GREEN;
-	else if (p_ptr->csp > (p_ptr->msp * op_ptr->hitpoint_warn) / 10)
-		attr = TERM_YELLOW;
-	else
-		attr = TERM_RED;
-	
-	return attr;
-}
-
-/*
  * Prints players max/cur spell points
  */
 static void prt_sp(int row, int col)
 {
 	char cur_sp[32], max_sp[32];
-	byte color = player_sp_attr();
+	byte color = player_sp_attr(p_ptr);
 
 	/* Do not show mana unless we have some */
 	if (!p_ptr->msp) return;
@@ -365,11 +331,11 @@ byte monster_health_attr(void)
 	/* Not tracking */
 	if (!p_ptr->health_who)
 		attr = TERM_DARK;
-	
+
 	/* Tracking an unseen, hallucinatory, or dead monster */
-	else if ((!mon_list[p_ptr->health_who].ml) ||
+	else if ((!cave_monster(cave, p_ptr->health_who)->ml) ||
 			(p_ptr->timed[TMD_IMAGE]) ||
-			(mon_list[p_ptr->health_who].hp < 0))
+			(cave_monster(cave, p_ptr->health_who)->hp < 0))
 	{
 		/* The monster health is "unknown" */
 		attr = TERM_WHITE;
@@ -377,15 +343,14 @@ byte monster_health_attr(void)
 	
 	else
 	{
+		struct monster *mon = cave_monster(cave, p_ptr->health_who);
 		int pct;
-
-		monster_type *m_ptr = &mon_list[p_ptr->health_who];
 
 		/* Default to almost dead */
 		attr = TERM_RED;
 
 		/* Extract the "percent" of health */
-		pct = 100L * m_ptr->hp / m_ptr->maxhp;
+		pct = 100L * mon->hp / mon->maxhp;
 
 		/* Badly wounded */
 		if (pct >= 10) attr = TERM_L_RED;
@@ -400,16 +365,16 @@ byte monster_health_attr(void)
 		if (pct >= 100) attr = TERM_L_GREEN;
 
 		/* Afraid */
-		if (m_ptr->monfear) attr = TERM_VIOLET;
+		if (mon->m_timed[MON_TMD_FEAR]) attr = TERM_VIOLET;
 
 		/* Confused */
-		if (m_ptr->confused) attr = TERM_UMBER;
+		if (mon->m_timed[MON_TMD_CONF]) attr = TERM_UMBER;
 
 		/* Stunned */
-		if (m_ptr->stunned) attr = TERM_L_BLUE;
+		if (mon->m_timed[MON_TMD_STUN]) attr = TERM_L_BLUE;
 
 		/* Asleep */
-		if (m_ptr->csleep) attr = TERM_BLUE;
+		if (mon->m_timed[MON_TMD_SLEEP]) attr = TERM_BLUE;
 	}
 	
 	return attr;
@@ -428,18 +393,22 @@ byte monster_health_attr(void)
 static void prt_health(int row, int col)
 {
 	byte attr = monster_health_attr();
+	struct monster *mon;
 	
 	/* Not tracking */
 	if (!p_ptr->health_who)
 	{
 		/* Erase the health bar */
 		Term_erase(col, row, 12);
+		return;
 	}
 
+	mon = cave_monster(cave, p_ptr->health_who);
+
 	/* Tracking an unseen, hallucinatory, or dead monster */
-	else if ((!mon_list[p_ptr->health_who].ml) || /* Unseen */
+	if ((!mon->ml) || /* Unseen */
 			(p_ptr->timed[TMD_IMAGE]) || /* Hallucination */
-			(mon_list[p_ptr->health_who].hp < 0)) /* Dead (?) */
+			(mon->hp < 0)) /* Dead (?) */
 	{
 		/* The monster health is "unknown" */
 		Term_putstr(col, row, 12, attr, "[----------]");
@@ -450,7 +419,7 @@ static void prt_health(int row, int col)
 	{
 		int pct, len;
 
-		monster_type *m_ptr = &mon_list[p_ptr->health_who];
+		monster_type *m_ptr = cave_monster(cave, p_ptr->health_who);
 
 		/* Extract the "percent" of health */
 		pct = 100L * m_ptr->hp / m_ptr->maxhp;
@@ -534,8 +503,8 @@ static void prt_wis(int row, int col) { prt_stat(A_WIS, row, col); }
 static void prt_int(int row, int col) { prt_stat(A_INT, row, col); }
 static void prt_con(int row, int col) { prt_stat(A_CON, row, col); }
 static void prt_chr(int row, int col) { prt_stat(A_CHR, row, col); }
-static void prt_race(int row, int col) { prt_field(rp_ptr->name, row, col); }
-static void prt_class(int row, int col) { prt_field(cp_ptr->name, row, col); }
+static void prt_race(int row, int col) { prt_field(p_ptr->race->name, row, col); }
+static void prt_class(int row, int col) { prt_field(p_ptr->class->name, row, col); }
 
 
 /*
@@ -633,7 +602,7 @@ static void hp_colour_change(game_event_type type, game_event_data *data, void *
 	 * using this command when graphics mode is on
 	 * causes the character to be a black square.
 	 */
-	if ((OPT(hp_changes_color)) && (arg_graphics == GRAPHICS_NONE))
+	if ((OPT(hp_changes_color)) && (use_graphics == GRAPHICS_NONE))
 	{
 		cave_light_spot(cave, p_ptr->py, p_ptr->px);
 	}
@@ -706,6 +675,7 @@ static const struct state_info effects[] =
 	{ TMD_INVULN,    S("Invuln"),     TERM_L_GREEN },
 	{ TMD_HERO,      S("Hero"),       TERM_L_GREEN },
 	{ TMD_SHERO,     S("Berserk"),    TERM_L_GREEN },
+	{ TMD_BOLD,      S("Bold"),       TERM_L_GREEN },
 	{ TMD_STONESKIN, S("Stone"),      TERM_L_GREEN },
 	{ TMD_SHIELD,    S("Shield"),     TERM_L_GREEN },
 	{ TMD_BLESSED,   S("Blssd"),      TERM_L_GREEN },
@@ -921,22 +891,30 @@ static size_t prt_dtrap(int row, int col)
 }
 
 
-
 /*
- * Print whether a character is studying or not.
+ * Print how many spells the player can study.
  */
 static size_t prt_study(int row, int col)
 {
+	char *text;
+	int attr = TERM_WHITE;
+
+	/* Can the player learn new spells? */
 	if (p_ptr->new_spells)
 	{
-		char *text = format("Study (%d)", p_ptr->new_spells);
-		put_str(text, row, col);
+		/* If the player does not carry a book with spells they can study,
+		   the message is displayed in a darker colour */
+		if (!player_can_study_book())
+			attr = TERM_L_DARK;
+
+		/* Print study message */
+		text = format("Study (%d)", p_ptr->new_spells);
+		c_put_str(attr, text, row, col);
 		return strlen(text) + 1;
 	}
 
 	return 0;
 }
-
 
 
 /*
@@ -958,6 +936,20 @@ static size_t prt_tmd(int row, int col)
 	return len;
 }
 
+/**
+ * Print "unignoring" status
+ */
+static size_t prt_unignore(int row, int col)
+{
+	if (p_ptr->unignoring) {
+		const char *str = "Unignoring";
+		put_str(str, row, col);
+		return strlen(str);
+	}
+
+	return 0;
+}
+
 /*
  * Print mouse buttons
  */
@@ -974,8 +966,8 @@ static size_t prt_buttons(int row, int col)
 typedef size_t status_f(int row, int col);
 
 status_f *status_handlers[] =
-{ prt_recall, prt_state, prt_cut, prt_stun, prt_hunger, prt_study, prt_tmd,
-  prt_dtrap, prt_buttons };
+{ prt_buttons, prt_unignore, prt_recall, prt_state, prt_cut, prt_stun,
+  prt_hunger, prt_study, prt_tmd, prt_dtrap };
 
 
 /*
@@ -1027,7 +1019,7 @@ static void update_maps(game_event_type type, game_event_data *data, void *user)
 	{
 		grid_data g;
 		byte a, ta;
-		char c, tc;
+		wchar_t c, tc;
 		
 		int ky, kx;
 		int vy, vx;
@@ -1218,13 +1210,19 @@ static void update_monster_subwindow(game_event_type type, game_event_data *data
 {
 	term *old = Term;
 	term *inv_term = user;
+	const monster_race *r_ptr;
+	const monster_lore *l_ptr;
 
 	/* Activate */
 	Term_activate(inv_term);
 
 	/* Display monster race info */
 	if (p_ptr->monster_race_idx)
-		display_roff(p_ptr->monster_race_idx);
+	{
+		r_ptr = &r_info[p_ptr->monster_race_idx];
+		l_ptr = &l_list[p_ptr->monster_race_idx];
+		display_roff(r_ptr, l_ptr);
+	}
 
 	Term_fresh();
 	
@@ -1241,9 +1239,9 @@ static void update_object_subwindow(game_event_type type, game_event_data *data,
 	/* Activate */
 	Term_activate(inv_term);
 	
-	if (p_ptr->object_idx)
+	if (p_ptr->object_idx != NO_OBJECT)
 		display_object_idx_recall(p_ptr->object_idx);
-	else if(p_ptr->object_kind_idx)
+	else if(p_ptr->object_kind_idx != NO_OBJECT)
 		display_object_kind_recall(p_ptr->object_kind_idx);
 	Term_fresh();
 	
@@ -1303,18 +1301,12 @@ static struct minimap_flags
 	bool needs_redraw;
 } minimap_data[ANGBAND_TERM_MAX];
 
-static void update_minimap_subwindow(game_event_type type, game_event_data *data, void *user)
+static void update_minimap_subwindow(game_event_type type,
+	game_event_data *data, void *user)
 {
 	struct minimap_flags *flags = user;
 
-	if (type == EVENT_MAP)
-	{
-		/* Set flag if whole-map redraw. */
-		if (data->point.x == -1 && data->point.y == -1)
-			flags->needs_redraw = TRUE;
-	}
-	else if (type == EVENT_END)
-	{
+	if (type == EVENT_END) {
 		term *old = Term;
 		term *t = angband_term[flags->win_idx];
 		
@@ -1394,8 +1386,8 @@ static void update_player_compact_subwindow(game_event_type type, game_event_dat
 	Term_activate(inv_term);
 
 	/* Race and Class */
-	prt_field(rp_ptr->name, row++, col);
-	prt_field(cp_ptr->name, row++, col);
+	prt_field(p_ptr->race->name, row++, col);
+	prt_field(p_ptr->class->name, row++, col);
 
 	/* Title */
 	prt_title(row++, col);
@@ -1649,7 +1641,7 @@ void subwindows_set_flags(u32b *new_flags, size_t n_subwindows)
 /*
  * Hack -- Explain a broken "lib" folder and quit (see below).
  */
-static void init_angband_aux(cptr why)
+static void init_angband_aux(const char *why)
 {
 	quit_fmt("%s\n\n%s", why,
 	         "The 'lib' directory is probably missing or broken.\n"
@@ -1706,7 +1698,7 @@ static void show_splashscreen(game_event_type type, game_event_data *data, void 
 			if (version_marker)
 			{
 				ptrdiff_t pos = version_marker - buf;
-				strnfmt(version_marker, sizeof(buf) - pos, "%-8s", VERSION_STRING);
+				strnfmt(version_marker, sizeof(buf) - pos, "%-8s", buildver);
 			}
 
 			text_out_e("%s", buf);
@@ -1747,13 +1739,13 @@ static void see_floor_items(game_event_type type, game_event_data *data, void *u
 	if (floor_num == 0) return;
 
 	for (i = 0; i < floor_num; i++)
-	    can_pickup += inven_carry_okay(&o_list[floor_list[i]]);
+	    can_pickup += inven_carry_okay(object_byid(floor_list[i]));
 	
 	/* One object */
 	if (floor_num == 1)
 	{
 		/* Get the object */
-		object_type *o_ptr = &o_list[floor_list[0]];
+		object_type *o_ptr = object_byid(floor_list[0]);
 		char o_name[80];
 
 		if (!can_pickup)
@@ -1775,7 +1767,7 @@ static void see_floor_items(game_event_type type, game_event_data *data, void *u
 	}
 	else
 	{
-		ui_event_data e;
+		ui_event e;
 
 		if (!can_pickup)	p = "have no room for the following objects";
 		else if (blind)     p = "feel something on the floor";
@@ -1860,6 +1852,7 @@ static void ui_leave_game(game_event_type type, game_event_data *data, void *use
 #endif
 	/* Check if the panel should shift when the player's moved */
 	event_remove_handler(EVENT_PLAYERMOVED, check_panel, NULL);
+	event_remove_handler(EVENT_SEEFLOOR, see_floor_items, NULL);
 }
 
 errr textui_get_cmd(cmd_context context, bool wait)

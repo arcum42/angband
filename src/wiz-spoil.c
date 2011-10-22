@@ -17,7 +17,9 @@
  */
 
 #include "angband.h"
+#include "buildid.h"
 #include "cmds.h"
+#include "monster/mon-lore.h"
 #include "monster/monster.h"
 #include "object/tvalsval.h"
 #include "ui-menu.h"
@@ -53,7 +55,7 @@ static void spoiler_blanklines(int n)
 /*
  * Write a line to the spoiler file and then "underline" it with hypens
  */
-static void spoiler_underline(cptr str, char c)
+static void spoiler_underline(const char *str, char c)
 {
 	text_out("%s", str);
 	text_out("\n");
@@ -146,7 +148,7 @@ static void kind_info(char *buf, size_t buf_len,
 	object_prep(i_ptr, &k_info[k], 0, MAXIMISE);
 
 	/* Obtain the "kind" info */
-	k_ptr = &k_info[i_ptr->k_idx];
+	k_ptr = i_ptr->kind;
 
 	/* Cancel bonuses */
 	for (i = 0; i < MAX_PVALS; i++)
@@ -230,7 +232,7 @@ static void kind_info(char *buf, size_t buf_len,
 /*
  * Create a spoiler file for items
  */
-static void spoil_obj_desc(cptr fname)
+static void spoil_obj_desc(const char *fname)
 {
 	int i, k, s, t, n = 0;
 
@@ -241,10 +243,7 @@ static void spoil_obj_desc(cptr fname)
 	char wgt[80];
 	char dam[80];
 
-	cptr format = "%-51s  %7s%6s%4s%9s\n";
-
-	/* We use either ascii or system-specific encoding */
- 	int encoding = (OPT(xchars_to_file)) ? SYSTEM_SPECIFIC : ASCII;
+	const char *format = "%-51s  %7s%6s%4s%9s\n";
 
 	/* Open the file */
 	path_build(buf, sizeof(buf), ANGBAND_DIR_USER, fname);
@@ -259,7 +258,7 @@ static void spoil_obj_desc(cptr fname)
 
 
 	/* Header */
-	file_putf(fh, "Spoiler File -- Basic Items (%s)\n\n\n", VERSION_STRING);
+	file_putf(fh, "Spoiler File -- Basic Items (%s)\n\n\n", buildid);
 
 	/* More Header */
 	file_putf(fh, format, "Description", "Dam/AC", "Wgt", "Lev", "Cost");
@@ -308,7 +307,7 @@ static void spoil_obj_desc(cptr fname)
 				kind_info(buf, sizeof(buf), dam, sizeof(dam), wgt, sizeof(wgt), &e, &v, who[s]);
 
 				/* Dump it */
-				x_file_putf(fh, encoding, "  %-51s%7s%6s%4d%9ld\n",
+				x_file_putf(fh, "  %-51s%7s%6s%4d%9ld\n",
 				        buf, dam, wgt, e, (long)(v));
 			}
 
@@ -319,7 +318,7 @@ static void spoil_obj_desc(cptr fname)
 			if (!group_item[i].tval) break;
 
 			/* Start a new set */
-			x_file_putf(fh, encoding, "\n\n%s\n\n", group_item[i].name);
+			x_file_putf(fh, "\n\n%s\n\n", group_item[i].name);
 		}
 
 		/* Get legal item types */
@@ -390,51 +389,27 @@ static const grouper group_artifact[] =
 
 
 /*
- * Hack -- Create a "forged" artifact
+ * Create a fake artifact
  */
-bool make_fake_artifact(object_type *o_ptr, byte name1)
+bool make_fake_artifact(object_type *o_ptr, struct artifact *artifact)
 {
-	int i, j;
+	object_kind *kind;
 
-	artifact_type *a_ptr = &a_info[name1];
-
-
-	/* Ignore "empty" artifacts */
-	if (!a_ptr->name) return FALSE;
+	/* Don't bother with empty artifacts */
+	if (!artifact->tval) return FALSE;
 
 	/* Get the "kind" index */
-	i = lookup_kind(a_ptr->tval, a_ptr->sval);
-
-	/* Oops */
-	if (!i) return (FALSE);
+	kind = lookup_kind(artifact->tval, artifact->sval);
+	if (!kind) return FALSE;
 
 	/* Create the artifact */
-	object_prep(o_ptr, &k_info[i], 0, MAXIMISE);
+	object_prep(o_ptr, kind, 0, MAXIMISE);
 
 	/* Save the name */
-	o_ptr->name1 = name1;
+	o_ptr->artifact = artifact;
 
 	/* Extract the fields */
-	for (j = 0; j < a_ptr->num_pvals; j++)
-		o_ptr->pval[j] = a_ptr->pval[j];
-	o_ptr->num_pvals = a_ptr->num_pvals;
-	o_ptr->ac = a_ptr->ac;
-	o_ptr->dd = a_ptr->dd;
-	o_ptr->ds = a_ptr->ds;
-	o_ptr->to_a = a_ptr->to_a;
-	o_ptr->to_h = a_ptr->to_h;
-	o_ptr->to_d = a_ptr->to_d;
-	o_ptr->weight = a_ptr->weight;
-
-	/* Hack -- extract the "cursed" flags */
-	if (of_has(a_ptr->flags, OF_LIGHT_CURSE))
-		of_on(o_ptr->flags, OF_LIGHT_CURSE);
-
-	if (of_has(a_ptr->flags, OF_HEAVY_CURSE))
-		of_on(o_ptr->flags, OF_HEAVY_CURSE);
-
-	if (of_has(a_ptr->flags, OF_PERMA_CURSE))
-		of_on(o_ptr->flags, OF_PERMA_CURSE);
+	copy_artifact_data(o_ptr, artifact);
 
 	/* Success */
 	o_ptr->ident |= IDENT_FAKE;
@@ -445,7 +420,7 @@ bool make_fake_artifact(object_type *o_ptr, byte name1)
 /*
  * Create a spoiler file for artifacts
  */
-static void spoil_artifact(cptr fname)
+static void spoil_artifact(const char *fname)
 {
 	int i, j;
 
@@ -471,8 +446,9 @@ static void spoil_artifact(cptr fname)
 	text_out_file = fh;
 
 	/* Dump the header */
-	spoiler_underline(format("Artifact Spoilers for %s %s",
-	                         VERSION_NAME, VERSION_STRING), '=');
+	spoiler_underline(format("Artifact Spoilers for %s", buildid), '=');
+
+	text_out("\n Randart seed is %u\n", seed_randart);
 
 	/* List the artifacts by tval */
 	for (i = 0; group_artifact[i].tval; i++)
@@ -501,7 +477,7 @@ static void spoil_artifact(cptr fname)
 			object_wipe(i_ptr);
 
 			/* Attempt to "forge" the artifact */
-			if (!make_fake_artifact(i_ptr, (byte)j)) continue;
+			if (!make_fake_artifact(i_ptr, a_ptr)) continue;
 
 			/* Grab artifact name */
 			object_desc(buf, sizeof(buf), i_ptr, ODESC_PREFIX |
@@ -523,6 +499,8 @@ static void spoil_artifact(cptr fname)
 				a_ptr->alloc_prob, object_power(i_ptr, FALSE,
 				NULL, TRUE), (a_ptr->weight / 10),
 				(a_ptr->weight % 10));
+
+			if (OPT(birth_randarts)) text_out("%s.\n", a_ptr->text);
 
 			/* Terminate the entry */
 			spoiler_blanklines(2);
@@ -547,7 +525,7 @@ static void spoil_artifact(cptr fname)
 /*
  * Create a spoiler file for monsters
  */
-static void spoil_mon_desc(cptr fname)
+static void spoil_mon_desc(const char *fname)
 {
 	int i, n = 0;
 
@@ -563,9 +541,6 @@ static void spoil_mon_desc(cptr fname)
 
 	u16b *who;
 
-	/* We use either ascii or system-specific encoding */
- 	int encoding = (OPT(xchars_to_file)) ? SYSTEM_SPECIFIC : ASCII;
-
 	/* Build the filename */
 	path_build(buf, sizeof(buf), ANGBAND_DIR_USER, fname);
 	fh = file_open(buf, MODE_WRITE, FTYPE_TEXT);
@@ -578,14 +553,13 @@ static void spoil_mon_desc(cptr fname)
 	}
 
 	/* Dump the header */
-	x_file_putf(fh, encoding, "Monster Spoilers for %s Version %s\n",
-	        VERSION_NAME, VERSION_STRING);
-	x_file_putf(fh, encoding, "------------------------------------------\n\n");
+	x_file_putf(fh, "Monster Spoilers for %s\n", buildid);
+	x_file_putf(fh, "------------------------------------------\n\n");
 
 	/* Dump the header */
-	x_file_putf(fh, encoding, "%-40.40s%4s%4s%6s%8s%4s  %11.11s\n",
+	x_file_putf(fh, "%-40.40s%4s%4s%6s%8s%4s  %11.11s\n",
 	        "Name", "Lev", "Rar", "Spd", "Hp", "Ac", "Visual Info");
-	x_file_putf(fh, encoding, "%-40.40s%4s%4s%6s%8s%4s  %11.11s\n",
+	x_file_putf(fh, "%-40.40s%4s%4s%6s%8s%4s  %11.11s\n",
 	        "----", "---", "---", "---", "--", "--", "-----------");
 
 	/* Allocate the "who" array */
@@ -608,7 +582,7 @@ static void spoil_mon_desc(cptr fname)
 	{
 		monster_race *r_ptr = &r_info[who[i]];
 
-		cptr name = r_ptr->name;
+		const char *name = r_ptr->name;
 
 		/* Get the "name" */
 		if (rf_has(r_ptr->flags, RF_QUESTOR))
@@ -651,7 +625,7 @@ static void spoil_mon_desc(cptr fname)
 		strnfmt(exp, sizeof(exp), "%s '%c'", attr_to_text(r_ptr->d_attr), r_ptr->d_char);
 
 		/* Dump the info */
-		x_file_putf(fh, encoding, "%-40.40s%4s%4s%6s%8s%4s  %11.11s\n",
+		x_file_putf(fh, "%-40.40s%4s%4s%6s%8s%4s  %11.11s\n",
 		        nam, lev, rar, spd, hp, ac, exp);
 	}
 
@@ -684,7 +658,7 @@ static void spoil_mon_desc(cptr fname)
 /*
  * Create a spoiler file for monsters (-SHAWN-)
  */
-static void spoil_mon_info(cptr fname)
+static void spoil_mon_info(const char *fname)
 {
 	char buf[1024];
 	int i, n;
@@ -708,8 +682,7 @@ static void spoil_mon_info(cptr fname)
 	text_out_file = fh;
 
 	/* Dump the header */
-	text_out("Monster Spoilers for %s Version %s\n",
-	        VERSION_NAME, VERSION_STRING);
+	text_out("Monster Spoilers for %s\n", buildid);
 	text_out("------------------------------------------\n\n");
 
 	/* Allocate the "who" array */
@@ -732,7 +705,8 @@ static void spoil_mon_info(cptr fname)
 	for (n = 0; n < count; n++)
 	{
 		int r_idx = who[n];
-		monster_race *r_ptr = &r_info[r_idx];
+		const monster_race *r_ptr = &r_info[r_idx];
+		const monster_lore *l_ptr = &l_list[r_idx];
 
 		/* Prefix */
 		if (rf_has(r_ptr->flags, RF_QUESTOR))
@@ -790,7 +764,7 @@ static void spoil_mon_info(cptr fname)
 		text_out("Exp:%ld\n", (long)(r_ptr->mexp));
 
 		/* Describe */
-		describe_monster(r_idx, TRUE);
+		describe_monster(r_ptr, l_ptr, TRUE);
 
 		/* Terminate the entry */
 		text_out("\n");
@@ -849,7 +823,7 @@ void do_cmd_spoilers(void)
 	screen_save();
 	clear_from(0);
 	menu_layout(spoil_menu, &SCREEN_REGION);
-	menu_select(spoil_menu, 0);
+	menu_select(spoil_menu, 0, FALSE);
 	screen_load();
 }
 

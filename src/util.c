@@ -1,6 +1,6 @@
 /*
  * File: util.c
- * Purpose: Macro code, gamma correction, some high-level UI functions, inkey()
+ * Purpose: Gamma correction, some high-level UI functions, inkey()
  *
  * Copyright (c) 1997 Ben Harrison, James E. Wilson, Robert A. Koeneke
  *
@@ -18,456 +18,9 @@
 
 #include "angband.h"
 #include "button.h"
-#include "game-event.h"
-#include "macro.h"
 #include "cmds.h"
-
-/*
- * Convert a decimal to a single digit hex number
- */
-static char hexify(int i)
-{
-	return (hexsym[i % 16]);
-}
-
-/*
- * Convert a hexidecimal-digit into a decimal
- */
-static int dehex(char c)
-{
-	if (isdigit((unsigned char)c)) return (D2I(c));
-	if (isalpha((unsigned char)c)) return (A2I(tolower((unsigned char)c)) + 10);
-	return (0);
-}
-
-
-/*
- * Transform macro trigger name ('\[alt-D]' etc..)
- * into macro trigger key code ('^_O_64\r' or etc..)
- */
-static size_t trigger_text_to_ascii(char *buf, size_t max, cptr *strptr)
-{
-	cptr str = *strptr;
-	bool mod_status[MAX_MACRO_MOD];
-
-	int i, len = 0;
-	int shiftstatus = 0;
-	cptr key_code;
-	
-	size_t current_len = strlen(buf);
-
-	/* No definition of trigger names */
-	if (macro_template == NULL) return 0;
-
-	/* Initialize modifier key status */	
-	for (i = 0; macro_modifier_chr[i]; i++)
-		mod_status[i] = FALSE;
-
-	str++;
-
-	/* Examine modifier keys */
-	while (1)
-	{
-		/* Look for modifier key name */
-		for (i = 0; macro_modifier_chr[i]; i++)
-		{
-			len = strlen(macro_modifier_name[i]);
-
-			if (!my_strnicmp(str, macro_modifier_name[i], len))
-				break;
-		}
-
-		/* None found? */
-		if (!macro_modifier_chr[i]) break;
-
-		/* Proceed */
-		str += len;
-
-		/* This modifier key is pressed */
-		mod_status[i] = TRUE;
-
-		/* Shift key might be going to change keycode */
-		if (macro_modifier_chr[i] == 'S')
-			shiftstatus = 1;
-	}
-
-	/* Look for trigger name */
-	for (i = 0; i < max_macrotrigger; i++)
-	{
-		len = strlen(macro_trigger_name[i]);
-
-		/* Found it and it is ending with ']' */
-		if (!my_strnicmp(str, macro_trigger_name[i], len) && (']' == str[len]))
-			break;
-	}
-
-	/* Invalid trigger name? */
-	if (i == max_macrotrigger)
-	{
-		/*
-		 * If this invalid trigger name is ending with ']',
-		 * skip whole of it to avoid defining strange macro trigger
-		 */
-		str = strchr(str, ']');
-
-		if (str)
-		{
-			strnfcat(buf, max, &current_len, "\x1F\r");
-
-			*strptr = str; /* where **strptr == ']' */
-		}
-
-		return current_len;
-	}
-
-	/* Get keycode for this trigger name */
-	key_code = macro_trigger_keycode[shiftstatus][i];
-
-	/* Proceed */
-	str += len;
-
-	/* Begin with '^_' */
-	strnfcat(buf, max, &current_len, "\x1F");
-
-	/* Write key code style trigger using template */
-	for (i = 0; macro_template[i]; i++)
-	{
-		char ch = macro_template[i];
-
-		switch (ch)
-		{
-			/* Modifier key character */
-			case '&':
-			{
-				size_t j;
-				for (j = 0; macro_modifier_chr[j]; j++)
-				{
-					if (mod_status[j])
-						strnfcat(buf, max, &current_len, "%c", macro_modifier_chr[j]);
-				}
-				break;
-			}
-
-			/* Key code */
-			case '#':
-			{
-				strnfcat(buf, max, &current_len, "%s", key_code);
-				break;
-			}
-
-			/* Fixed string */
-			default:
-			{
-				strnfcat(buf, max, &current_len, "%c", ch);
-				break;
-			}
-		}
-	}
-
-	/* End with '\r' */
-	strnfcat(buf, max, &current_len, "\r");
-
-	/* Succeed */
-	*strptr = str; /* where **strptr == ']' */
-	
-	return current_len;
-}
-
-
-/*
- * Hack -- convert a printable string into real ascii
- *
- * This function will not work on non-ascii systems.
- *
- * To be safe, "buf" should be at least as large as "str".
- */
-void text_to_ascii(char *buf, size_t len, cptr str)
-{
-	char *s = buf;
-
-	/* Analyze the "ascii" string */
-	while (*str)
-	{
-		/* Check if the buffer is long enough */
-		if (s >= buf + len - 1) break;
-
-		/* Backslash codes */
-		if (*str == '\\')
-		{
-			str++;
-			if (*str == '\0') break;
-
-			switch (*str)
-			{
-				/* Macro trigger */
-				case '[':
-				{
-					/* Terminate before appending the trigger */
-					*s = '\0';
-					s += trigger_text_to_ascii(buf, len, &str);
-					break;
-				}
-
-				/* Hex-mode */
-				case 'x':
-				{
-					if (isxdigit((unsigned char)(*(str + 1))) &&
-					    isxdigit((unsigned char)(*(str + 2))))
-					{
-						*s = 16 * dehex(*++str);
-						*s++ += dehex(*++str);
-					}
-					else
-					{
-						/* HACK - Invalid hex number */
-						*s++ = '?';
-					}
-					break;
-				}
-
-				case 'e':
-					*s++ = ESCAPE;
-					break;
-				case 's':
-					*s++ = ' ';
-					break;
-				case 'b':
-					*s++ = '\b';
-					break;
-				case 'n':
-					*s++ = '\n';
-					break;
-				case 'r':
-					*s++ = '\r';
-					break;
-				case 't':
-					*s++ = '\t';
-					break;
-				case 'a':
-					*s++ = '\a';
-					break;
-				case '\\':
-					*s++ = '\\';
-					break;
-				case '^':
-					*s++ = '^';
-					break;
-
-				default:
-					*s = *str;
-					break;
-			}
-
-			/* Skip the final char */
-			str++;
-		}
-
-		/* Normal Control codes */
-		else if (*str == '^')
-		{
-			str++;
-			if (*str == '\0') break;
-
-			*s++ = KTRL(*str);
-			str++;
-		}
-
-		/* Normal chars */
-		else
-		{
-			*s++ = *str++;
-		}
-	}
-
-	/* Terminate */
-	*s = '\0';
-}
-
-
-/*
- * Transform macro trigger key code ('^_O_64\r' or etc..) 
- * into macro trigger name ('\[alt-D]' etc..)
- */
-static size_t trigger_ascii_to_text(char *buf, size_t max, cptr *strptr)
-{
-	cptr str = *strptr;
-	char key_code[100];
-	int i;
-	cptr tmp;
-	size_t current_len = strlen(buf);
-	
-
-	/* No definition of trigger names */
-	if (macro_template == NULL) return 0;
-
-	/* Trigger name will be written as '\[name]' */
-	strnfcat(buf, max, &current_len, "\\[");
-
-	/* Use template to read key-code style trigger */
-	for (i = 0; macro_template[i]; i++)
-	{
-		char ch = macro_template[i];
-
-		switch (ch)
-		{
-			/* Read modifier */
-			case '&':
-			{
-				size_t j;
-				while ((tmp = strchr(macro_modifier_chr, *str)) != 0)
-				{
-					j = tmp - macro_modifier_chr;
-					strnfcat(buf, max, &current_len, "%s", macro_modifier_name[j]);
-					str++;
-				}
-				break;
-			}
-
-			/* Read key code */
-			case '#':
-			{
-				size_t j;
-				for (j = 0; *str && (*str != '\r') && (j < sizeof(key_code) - 1); j++)
-					key_code[j] = *str++;
-				key_code[j] = '\0';
-				break;
-			}
-
-			/* Skip fixed strings */
-			default:
-			{
-				if (ch != *str) return 0;
-				str++;
-			}
-		}
-	}
-
-	/* Key code style triggers always end with '\r' */
-	if (*str++ != '\r') return 0;
-
-	/* Look for trigger name with given keycode (normal or shifted keycode) */
-	for (i = 0; i < max_macrotrigger; i++)
-	{
-		if (!my_stricmp(key_code, macro_trigger_keycode[0][i]) ||
-		    !my_stricmp(key_code, macro_trigger_keycode[1][i]))
-			break;
-	}
-
-	/* Not found? */
-	if (i == max_macrotrigger) return 0;
-
-	/* Write trigger name + "]" */
-	strnfcat(buf, max, &current_len, "%s]", macro_trigger_name[i]);
-
-	/* Succeed */
-	*strptr = str;
-	return current_len;
-}
-
-
-/*
- * Hack -- convert a string into a printable form
- *
- * This function will not work on non-ascii systems.
- */
-void ascii_to_text(char *buf, size_t len, cptr str)
-{
-	char *s = buf;
-
-	/* Analyze the "ascii" string */
-	while (*str)
-	{
-		byte i = (byte)(*str++);
-
-		/* Check if the buffer is long enough */
-		/* HACK - always assume worst case (hex-value + '\0') */
-		if (s >= buf + len - 5) break;
-
-		if (i == ESCAPE)
-		{
-			*s++ = '\\';
-			*s++ = 'e';
-		}
-		else if (i == ' ')
-		{
-			*s++ = '\\';
-			*s++ = 's';
-		}
-		else if (i == '\b')
-		{
-			*s++ = '\\';
-			*s++ = 'b';
-		}
-		else if (i == '\t')
-		{
-			*s++ = '\\';
-			*s++ = 't';
-		}
-		else if (i == '\a')
-		{
-			*s++ = '\\';
-			*s++ = 'a';
-		}
-		else if (i == '\n')
-		{
-			*s++ = '\\';
-			*s++ = 'n';
-		}
-		else if (i == '\r')
-		{
-			*s++ = '\\';
-			*s++ = 'r';
-		}
-		else if (i == '\\')
-		{
-			*s++ = '\\';
-			*s++ = '\\';
-		}
-		else if (i == '^')
-		{
-			*s++ = '\\';
-			*s++ = '^';
-		}
-		/* Macro Trigger */
-		else if (i == 31)
-		{
-			size_t offset;
-
-			/* Terminate before appending the trigger */
-			*s = '\0';
-
-			offset = trigger_ascii_to_text(buf, len, &str);
-			
-			if (offset == 0)
-			{
-				/* No trigger found */
-				*s++ = '^';
-				*s++ = '_';
-			}
-			else
-				s += offset;
-		}
-		else if (i < 32)
-		{
-			*s++ = '^';
-			*s++ = UN_KTRL(i);
-		}
-		else if (i < 127)
-		{
-			*s++ = i;
-		}
-		else
-		{
-			*s++ = '\\';
-			*s++ = 'x';
-			*s++ = hexify((int)i / 16);
-			*s++ = hexify((int)i % 16);
-		}
-	}
-
-	/* Terminate */
-	*s = '\0';
-}
+#include "game-event.h"
+#include "randname.h"
 
 
 /*
@@ -477,7 +30,7 @@ void ascii_to_text(char *buf, size_t len, cptr str)
  * 
  * Return the start position, or NULL if there isn't a valid suffix. 
  */
-char *find_roman_suffix_start(cptr buf)
+char *find_roman_suffix_start(const char *buf)
 {
 	const char *start = strrchr(buf, ' ');
 	const char *p;
@@ -583,7 +136,7 @@ int roman_to_int(const char *roman)
 	char *p;
 
 	char roman_token_chr1[] = "MDCLXVI";
-	char* roman_token_chr2[] = {0, 0, "DM", 0, "LC", 0, "VX"};
+	const char *roman_token_chr2[] = {0, 0, "DM", 0, "LC", 0, "VX"};
 
 	int roman_token_vals[7][3] = {{1000},
 	                              {500},
@@ -650,63 +203,21 @@ void flush(void)
 }
 
 
-/*
- * Local variable -- we are inside a "macro action"
- *
- * Do not match any macros until "ascii 30" is found.
- */
-static bool parse_macro = FALSE;
-
-
-/*
- * Local variable -- we are inside a "macro trigger"
- *
- * Strip all keypresses until a low ascii value is found.
- */
-static bool parse_under = FALSE;
-
 
 
 /*
  * Helper function called only from "inkey()"
- *
- * This function does almost all of the "macro" processing.
- *
- * We use the "Term_key_push()" function to handle "failed" macros, as well
- * as "extra" keys read in while choosing the proper macro, and also to hold
- * the action for the macro, plus a special "ascii 30" character indicating
- * that any macro action in progress is complete.  Embedded macros are thus
- * illegal, unless a macro action includes an explicit "ascii 30" character,
- * which would probably be a massive hack, and might break things.
- *
- * Only 500 (0+1+2+...+29+30) milliseconds may elapse between each key in
- * the macro trigger sequence.  If a key sequence forms the "prefix" of a
- * macro trigger, 500 milliseconds must pass before the key sequence is
- * known not to be that macro trigger.  XXX XXX XXX
  */
-static ui_event_data inkey_aux(int scan_cutoff)
+static ui_event inkey_aux(int scan_cutoff)
 {
-	int k = 0, n, p = 0, w = 0;
-	
-	ui_event_data ke, ke0;
-	char ch;
-	
-	cptr pat, act;
-	
-	char buf[1024];
+	int w = 0;	
 
-	/* Initialize the no return */
-	ke0.type = EVT_NONE;
-	ke0.key = 0;
-	ke0.index = 0; /* To fix GCC warnings on X11 */
-	ke0.mousey = 0;
-	ke0.mousex = 0;
- 
+	ui_event ke;
+	
 	/* Wait for a keypress */
 	if (scan_cutoff == SCAN_OFF)
 	{
 		(void)(Term_inkey(&ke, TRUE, TRUE));
-		ch = ke.key;
 	}
 	else
 	{
@@ -721,142 +232,16 @@ static ui_event_data inkey_aux(int scan_cutoff)
 			/* Excessive delay */
 			if (w >= scan_cutoff)
 			{
-				ke0.type = EVT_KBRD;
-				return ke0;
+				ui_event empty = EVENT_EMPTY;
+				return empty;
 			}
 
 			/* Delay */
 			Term_xtra(TERM_XTRA_DELAY, 10);
 		}
-		ch = ke.key;
 	}
 
-	
-	/* End "macro action" */
-	if (ke.key == 30 || ke.type == EVT_MOUSE)
-	{
-		parse_macro = FALSE;
-		return (ke);
-	}
-	
-	/* Inside "macro action" */
-	if (parse_macro) return (ke);
-	
-	/* Inside "macro trigger" */
-	if (parse_under) return (ke);
-	
-
-	/* Save the first key, advance */
-	buf[p++] = ke.key;
-	buf[p] = '\0';
-	
-	
-	/* Check for possible macro */
-	k = macro_find_check(buf);
-	
-	/* No macro pending */
-	if (k < 0) return (ke);
-	
-	
-	/* Wait for a macro, or a timeout */
-	while (TRUE)
-	{
-		/* Check for pending macro */
-		k = macro_find_maybe(buf);
-		
-		/* No macro pending */
-		if (k < 0) break;
-		
-		/* Check for (and remove) a pending key */
-		if (0 == Term_inkey(&ke, FALSE, TRUE))
-		{
-			/* Append the key */
-			buf[p++] = ke.key;
-			buf[p] = '\0';
-		
-			/* Restart wait */
-			w = 0;
-		}
-		
-		/* No key ready */
-		else
-		{
-			/* Increase "wait" */
-			w ++;
-		
-			/* Excessive delay */
-			if (w >= SCAN_MACRO) break;
-		
-			/* Delay */
-			Term_xtra(TERM_XTRA_DELAY, 10);
-		}
-	}
-	
-	
-	/* Check for available macro */
-	k = macro_find_ready(buf);
-
-	/* No macro available */
-	if (k < 0)
-	{
-		/* Push all the "keys" back on the queue */
-		/* The most recent event may not be a keypress. */
-		if(p)
-		{
-			if(Term_event_push(&ke)) return (ke0);
-			p--;
-		}
-		while (p > 0)
-		{
-			/* Push the key, notice over-flow */
-			if (Term_key_push(buf[--p])) return (ke0);
-		}
-		
-		/* Wait for (and remove) a pending key */
-		(void)Term_inkey(&ke, TRUE, TRUE);
-		
-		/* Return the key */
-		return (ke);
-	}
-	
-	
-	/* Get the pattern */
-	pat = macro__pat[k];
-	
-	/* Get the length of the pattern */
-	n = strlen(pat);
-	
-	/* Push the "extra" keys back on the queue */
-	while (p > n)
-	{
-		/* Push the key, notice over-flow */
-		if (Term_key_push(buf[--p])) return (ke0);
-	}
-	
-	
-	/* Begin "macro action" */
-	parse_macro = TRUE;
-	
-	/* Push the "end of macro action" key */
-	if (Term_key_push(30)) return (ke0);
-	
-	
-	/* Access the macro action */
-	act = macro__act[k];
-	
-	/* Get the length of the action */
-	n = strlen(act);
-	
-	/* Push the macro "action" onto the key queue */
-	while (n > 0)
-	{
-		/* Push the key, notice over-flow */
-		if (Term_key_push(act[--n])) return (ke0);
-	}
-	
-	
-	/* Hack -- Force "inkey()" to call us again */
-	return (ke0);
+	return (ke);
 }
 
 
@@ -865,11 +250,10 @@ static ui_event_data inkey_aux(int scan_cutoff)
  * Mega-Hack -- special "inkey_next" pointer.  XXX XXX XXX
  *
  * This special pointer allows a sequence of keys to be "inserted" into
- * the stream of keys returned by "inkey()".  This key sequence will not
- * trigger any macros, and cannot be bypassed by the Borg.  It is used
- * in Angband to handle "keymaps".
+ * the stream of keys returned by "inkey()".  This key sequence cannot be
+ * bypassed by the Borg.  We use it to implement keymaps.
  */
-cptr inkey_next = NULL;
+struct keypress *inkey_next = NULL;
 
 
 #ifdef ALLOW_BORG
@@ -880,7 +264,7 @@ cptr inkey_next = NULL;
  * This special function hook allows the "Borg" (see elsewhere) to take
  * control of the "inkey()" function, and substitute in fake keypresses.
  */
-char (*inkey_hack)(int flush_first) = NULL;
+struct keypress (*inkey_hack)(int flush_first) = NULL;
 
 #endif /* ALLOW_BORG */
 
@@ -894,46 +278,21 @@ char (*inkey_hack)(int flush_first) = NULL;
  * before this function returns.  Thus they function just like normal
  * parameters, except that most calls to this function can ignore them.
  *
- * If "inkey_xtra" is TRUE, then all pending keypresses will be flushed,
- * and any macro processing in progress will be aborted.  This flag is
- * set by the "flush()" function, which does not actually flush anything
- * itself, but rather, triggers delayed input flushing via "inkey_xtra".
+ * If "inkey_xtra" is TRUE, then all pending keypresses will be flushed.
+ * This is set by flush(), which doesn't actually flush anything itself
+ * but uses that flag to trigger delayed flushing.
  *
  * If "inkey_scan" is TRUE, then we will immediately return "zero" if no
  * keypress is available, instead of waiting for a keypress.
  *
- * If "inkey_base" is TRUE, then all macro processing will be bypassed.
- * If "inkey_base" and "inkey_scan" are both TRUE, then this function will
- * not return immediately, but will wait for a keypress for as long as the
- * normal macro matching code would, allowing the direct entry of macro
- * triggers.  The "inkey_base" flag is extremely dangerous!
- *
- * If "inkey_flag" is TRUE, then we will assume that we are waiting for a
- * normal command, and we will only show the cursor if "OPT(highlight_player)" is
- * TRUE (or if the player is in a store), instead of always showing the
- * cursor.  The various "main-xxx.c" files should avoid saving the game
- * in response to a "menu item" request unless "inkey_flag" is TRUE, to
- * prevent savefile corruption.
+ * If "inkey_flag" is TRUE, then we are waiting for a command in the main
+ * map interface, and we shouldn't show a cursor.
  *
  * If we are waiting for a keypress, and no keypress is ready, then we will
  * refresh (once) the window which was active when this function was called.
  *
  * Note that "back-quote" is automatically converted into "escape" for
- * convenience on machines with no "escape" key.  This is done after the
- * macro matching, so the user can still make a macro for "backquote".
- *
- * Note the special handling of "ascii 30" (ctrl-caret, aka ctrl-shift-six)
- * and "ascii 31" (ctrl-underscore, aka ctrl-shift-minus), which are used to
- * provide support for simple keyboard "macros".  These keys are so strange
- * that their loss as normal keys will probably be noticed by nobody.  The
- * "ascii 30" key is used to indicate the "end" of a macro action, which
- * allows recursive macros to be avoided.  The "ascii 31" key is used by
- * some of the "main-xxx.c" files to introduce macro trigger sequences.
- *
- * Hack -- we use "ascii 29" (ctrl-right-bracket) as a special "magic" key,
- * which can be used to give a variety of "sub-commands" which can be used
- * any time.  These sub-commands could include commands to take a picture of
- * the current screen, to start/stop recording a macro action, etc.
+ * convenience on machines with no "escape" key.
  *
  * If "angband_term[0]" is not active, we will make it active during this
  * function, so that the various "main-xxx.c" files can assume that input
@@ -942,34 +301,34 @@ char (*inkey_hack)(int flush_first) = NULL;
  * Mega-Hack -- This function is used as the entry point for clearing the
  * "signal_count" variable, and of the "character_saved" variable.
  *
- * Hack -- Note the use of "inkey_next" to allow "keymaps" to be processed.
- *
  * Mega-Hack -- Note the use of "inkey_hack" to allow the "Borg" to steal
  * control of the keyboard from the user.
  */
-ui_event_data inkey_ex(void)
+ui_event inkey_ex(void)
 {
 	bool cursor_state;
-	ui_event_data kk;
-	ui_event_data ke;
+	ui_event kk;
+	ui_event ke = EVENT_EMPTY;
 
 	bool done = FALSE;
 
 	term *old = Term;
 
-	/* Initialise keypress */
-	ke.key = 0;
-	ke.type = EVT_NONE;
+	/* Delayed flush */
+	if (inkey_xtra) {
+		Term_flush();
+		inkey_next = NULL;
+		inkey_xtra = FALSE;
+	}
 
 	/* Hack -- Use the "inkey_next" pointer */
-	if (inkey_next && *inkey_next && !inkey_xtra)
+	if (inkey_next && inkey_next->code)
 	{
 		/* Get next character, and advance */
 		ke.key = *inkey_next++;
-		ke.type = EVT_KBRD;
 
 		/* Cancel the various "global parameters" */
-		inkey_base = inkey_xtra = inkey_flag = FALSE;
+		inkey_flag = FALSE;
 		inkey_scan = 0;
 
 		/* Accept result */
@@ -985,7 +344,7 @@ ui_event_data inkey_ex(void)
 	if (inkey_hack && ((ke.key = (*inkey_hack)(inkey_xtra)) != 0))
 	{
 		/* Cancel the various "global parameters" */
-		inkey_base = inkey_xtra = inkey_flag = FALSE;
+		inkey_flag = FALSE;
 		inkey_scan = 0;
 		ke.type = EVT_KBRD;
 
@@ -995,29 +354,13 @@ ui_event_data inkey_ex(void)
 
 #endif /* ALLOW_BORG */
 
-	/* Hack -- handle delayed "flush()" */
-	if (inkey_xtra)
-	{
-		/* End "macro action" */
-		parse_macro = FALSE;
-
-		/* End "macro trigger" */
-		parse_under = FALSE;
-
-		/* Forget old keypresses */
-		Term_flush();
-	}
-
 
 	/* Get the cursor state */
 	(void)Term_get_cursor(&cursor_state);
 
 	/* Show the cursor if waiting, except sometimes in "command" mode */
 	if (!inkey_scan && (!inkey_flag || character_icky))
-	{
-		/* Show the cursor */
 		(void)Term_set_cursor(TRUE);
-	}
 
 
 	/* Hack -- Activate main screen */
@@ -1028,18 +371,14 @@ ui_event_data inkey_ex(void)
 	while (ke.type == EVT_NONE)
 	{
 		/* Hack -- Handle "inkey_scan == SCAN_INSTANT */
-		if (!inkey_base && inkey_scan == SCAN_INSTANT &&
-		   (0 != Term_inkey(&kk, FALSE, FALSE)))
-		{
-			ke.type = EVT_KBRD;
+		if (inkey_scan == SCAN_INSTANT &&
+				(0 != Term_inkey(&kk, FALSE, FALSE)))
 			break;
-		}
 
 
 		/* Hack -- Flush output once when no key ready */
 		if (!done && (0 != Term_inkey(&kk, FALSE, FALSE)))
 		{
-
 			/* Hack -- activate proper term */
 			Term_activate(old);
 
@@ -1060,57 +399,6 @@ ui_event_data inkey_ex(void)
 		}
 
 
-		/* Hack -- Handle "inkey_base" */
-		if (inkey_base)
-		{
-			int w = 0;
-
-			/* Wait forever */
-			if (!inkey_scan)
-			{
-				/* Wait for (and remove) a pending key */
-				if (0 == Term_inkey(&ke, TRUE, TRUE))
-				{
-					/* Done */
-					ke.type = EVT_KBRD;
-					break;
-				}
-
-				/* Oops */
-				break;
-			}
-
-			/* Wait only as long as macro activation would wait*/
-			while (TRUE)
-			{
-				/* Check for (and remove) a pending key */
-				if (0 == Term_inkey(&ke, FALSE, TRUE))
-				{
-					/* Done */
-					ke.type = EVT_KBRD;
-					break;
-				}
-
-				/* No key ready */
-				else
-				{
-					/* Increase "wait" */
-					w ++;
-
-					/* Excessive delay */
-					if (w >= SCAN_MACRO) break;
-
-					/* Delay */
-					Term_xtra(TERM_XTRA_DELAY, 10);
-
-				}
-			}
-
-			/* Done */
-			ke.type = EVT_KBRD;
-			break;
-		}
-
 		/* Get a key (see above) */
 		ke = inkey_aux(inkey_scan);
 
@@ -1120,74 +408,24 @@ ui_event_data inkey_ex(void)
 			/* Check to see if we've hit a button */
 			/* Assuming text buttons here for now - this would have to
 			 * change for GUI buttons */
-			char key = button_get_key(ke.mousex, ke.mousey);
+			char key = button_get_key(ke.mouse.x, ke.mouse.y);
 
 			if (key)
 			{
 				/* Rewrite the event */
+				/* XXXmacro button implementation needs updating */
 				ke.type = EVT_BUTTON;
-				ke.key = key;
-				ke.index = 0;
-				ke.mousey = 0;
-				ke.mousex = 0;
+				ke.key.code = key;
+				ke.key.mods = 0;
 
 				/* Done */
 				break;
 			}
 		}
 
-		/* Handle "control-right-bracket" */
-		if (ke.key == 29)
-		{
-			/* Strip this key */
-			ke.type = EVT_NONE;
-
-			/* Continue */
-			continue;
-		}
-
-
 		/* Treat back-quote as escape */
-		if (ke.key == '`') ke.key = ESCAPE;
-
-
-		/* End "macro trigger" */
-		if (parse_under && (ke.key >=0 && ke.key <= 32))
-		{
-			/* Strip this key */
-			ke.type = EVT_NONE;
-			ke.key = 0;
-
-			/* End "macro trigger" */
-			parse_under = FALSE;
-		}
-
-		/* Handle "control-caret" */
-		if (ke.key == 30)
-		{
-			/* Strip this key */
-			ke.type = EVT_NONE;
-			ke.key = 0;
-		}
-
-		/* Handle "control-underscore" */
-		else if (ke.key == 31)
-		{
-			/* Strip this key */
-			ke.type = EVT_NONE;
-			ke.key = 0;
-
-			/* Begin "macro trigger" */
-			parse_under = TRUE;
-		}
-
-		/* Inside "macro trigger" */
-    	else if (parse_under)
-		{
-			/* Strip this key */
-			ke.type = EVT_NONE;
-			ke.key = 0;
-		}
+		if (ke.key.code == '`')
+			ke.key.code = ESCAPE;
 	}
 
 
@@ -1200,7 +438,7 @@ ui_event_data inkey_ex(void)
 
 
 	/* Cancel the various "global parameters" */
-	inkey_base = inkey_xtra = inkey_flag = FALSE;
+	inkey_flag = FALSE;
 	inkey_scan = 0;
 
 	/* Return the keypress */
@@ -1211,34 +449,33 @@ ui_event_data inkey_ex(void)
 /*
  * Get a keypress or mouse click from the user.
  */
-char anykey(void)
+void anykey(void)
 {
-	ui_event_data ke = EVENT_EMPTY;
+	ui_event ke = EVENT_EMPTY;
   
-	/* Only accept a keypress or mouse click*/
-	do
-	{
+	/* Only accept a keypress or mouse click */
+	while (ke.type != EVT_MOUSE && ke.type != EVT_KBRD)
 		ke = inkey_ex();
-	} while ((ke.type != EVT_MOUSE) && (ke.type != EVT_KBRD));
-
-	return ke.key;
 }
 
 /*
  * Get a "keypress" from the user.
  */
-char inkey(void)
+struct keypress inkey(void)
 {
-	ui_event_data ke = EVENT_EMPTY;
+	ui_event ke = EVENT_EMPTY;
 
 	/* Only accept a keypress */
-	do
-	{
+	while (ke.type != EVT_ESCAPE && ke.type != EVT_KBRD)
 		ke = inkey_ex();
-	} while ((ke.type != EVT_ESCAPE) && (ke.type != EVT_KBRD));
 
 	/* Paranoia */
-	if (ke.type == EVT_ESCAPE) ke.key = ESCAPE;
+	if (ke.type == EVT_ESCAPE) {
+		ke.type = EVT_KBRD;
+		ke.key.code = ESCAPE;
+		ke.key.mods = 0;
+	}
+
 	return ke.key;
 }
 
@@ -1247,7 +484,7 @@ char inkey(void)
 /*
  * Flush the screen, make a noise
  */
-void bell(cptr reason)
+void bell(const char *reason)
 {
 	/* Mega-Hack -- Flush the output */
 	Term_fresh();
@@ -1259,7 +496,7 @@ void bell(cptr reason)
 
 		/* Window stuff */
 		p_ptr->redraw |= (PR_MESSAGE);
-		redraw_stuff();
+		redraw_stuff(p_ptr);
 	}
 
 	/* Flush the input (later!) */
@@ -1327,13 +564,16 @@ static int message_column = 0;
  * Hack -- Note that "msg("%s", NULL)" will clear the top line even if no
  * messages are pending.
  */
-static void msg_print_aux(u16b type, cptr msg)
+static void msg_print_aux(u16b type, const char *msg)
 {
 	int n;
 	char *t;
 	char buf[1024];
 	byte color;
 	int w, h;
+
+	if (!Term)
+		return;
 
 	/* Obtain the size */
 	(void)Term_get_size(&w, &h);
@@ -1475,7 +715,8 @@ void message_flush(void)
 	if (message_column)
 	{
 		/* Print pending messages */
-		msg_flush(message_column);
+		if (Term)
+			msg_flush(message_column);
 
 		/* Forget it */
 		msg_flag = FALSE;
@@ -1533,7 +774,7 @@ void screen_load(void)
  * At the given location, using the given attribute, if allowed,
  * add the given string.  Do not clear the line.
  */
-void c_put_str(byte attr, cptr str, int row, int col)
+void c_put_str(byte attr, const char *str, int row, int col)
 {
 	/* Position cursor, Dump the attr/text */
 	Term_putstr(col, row, -1, attr, str);
@@ -1543,7 +784,7 @@ void c_put_str(byte attr, cptr str, int row, int col)
 /*
  * As above, but in "white"
  */
-void put_str(cptr str, int row, int col)
+void put_str(const char *str, int row, int col)
 {
 	/* Spawn */
 	Term_putstr(col, row, -1, TERM_WHITE, str);
@@ -1555,7 +796,7 @@ void put_str(cptr str, int row, int col)
  * Display a string on the screen using an attribute, and clear
  * to the end of the line.
  */
-void c_prt(byte attr, cptr str, int row, int col)
+void c_prt(byte attr, const char *str, int row, int col)
 {
 	/* Clear line, position cursor */
 	Term_erase(col, row, 255);
@@ -1568,7 +809,7 @@ void c_prt(byte attr, cptr str, int row, int col)
 /*
  * As above, but in "white"
  */
-void prt(cptr str, int row, int col)
+void prt(const char *str, int row, int col)
 {
 	/* Spawn */
 	c_prt(TERM_WHITE, str, row, col);
@@ -1589,7 +830,7 @@ void prt(cptr str, int row, int col)
  * This function will correctly handle any width up to the maximum legal
  * value of 256, though it works best for a standard 80 character width.
  */
-void text_out_to_screen(byte a, cptr str)
+void text_out_to_screen(byte a, const char *str)
 {
 	int x, y;
 
@@ -1597,11 +838,8 @@ void text_out_to_screen(byte a, cptr str)
 
 	int wrap;
 
-	cptr s;
-	char buf[1024];
-
-	/* We use either ascii or system-specific encoding */
-	int encoding = (OPT(xchars_to_file)) ? SYSTEM_SPECIFIC : ASCII;
+	const wchar_t *s;
+	wchar_t buf[1024];
 
 	/* Obtain the size */
 	(void)Term_get_size(&wid, &h);
@@ -1610,10 +848,7 @@ void text_out_to_screen(byte a, cptr str)
 	(void)Term_locate(&x, &y);
 
 	/* Copy to a rewriteable string */
-	my_strcpy(buf, str, 1024);
-	
-	/* Translate it to 7-bit ASCII or system-specific format */
-	xstr_trans(buf, encoding);
+	Term_mbstowcs(buf, str, 1024);
 	
 	/* Use special wrapping boundary? */
 	if ((text_out_wrap > 0) && (text_out_wrap < wid))
@@ -1624,10 +859,10 @@ void text_out_to_screen(byte a, cptr str)
 	/* Process the string */
 	for (s = buf; *s; s++)
 	{
-		char ch;
+		wchar_t ch;
 
 		/* Force wrap */
-		if (*s == '\n')
+		if (*s == L'\n')
 		{
 			/* Wrap */
 			x = text_out_indent;
@@ -1643,15 +878,15 @@ void text_out_to_screen(byte a, cptr str)
 		}
 
 		/* Clean up the char */
-		ch = (my_isprint((unsigned char)*s) ? *s : ' ');
+		ch = (iswprint(*s) ? *s : L' ');
 
 		/* Wrap words as needed */
-		if ((x >= wrap - 1) && (ch != ' '))
+		if ((x >= wrap - 1) && (ch != L' '))
 		{
 			int i, n = 0;
 
 			byte av[256];
-			char cv[256];
+			wchar_t cv[256];
 
 			/* Wrap word */
 			if (x < wrap)
@@ -1663,7 +898,7 @@ void text_out_to_screen(byte a, cptr str)
 					Term_what(i, y, &av[i], &cv[i]);
 
 					/* Break on space */
-					if (cv[i] == ' ') break;
+					if (cv[i] == L' ') break;
 
 					/* Track current word */
 					n = i;
@@ -1719,9 +954,9 @@ void text_out_to_screen(byte a, cptr str)
  * You must be careful to end all file output with a newline character
  * to "flush" the stored line position.
  */
-void text_out_to_file(byte a, cptr str)
+void text_out_to_file(byte a, const char *str)
 {
-	cptr s;
+	const char *s;
 	char buf[1024];
 
 	/* Current position on the line */
@@ -1730,17 +965,11 @@ void text_out_to_file(byte a, cptr str)
 	/* Wrap width */
 	int wrap = (text_out_wrap ? text_out_wrap : 75);
 
-	/* We use either ascii or system-specific encoding */
- 	int encoding = OPT(xchars_to_file) ? SYSTEM_SPECIFIC : ASCII;
-
 	/* Unused parameter */
 	(void)a;
 
 	/* Copy to a rewriteable string */
  	my_strcpy(buf, str, 1024);
-
- 	/* Translate it to 7-bit ASCII or system-specific format */
- 	xstr_trans(buf, encoding);
 
 	/* Current location within "buf" */
  	s = buf;
@@ -1748,10 +977,15 @@ void text_out_to_file(byte a, cptr str)
 	/* Process the string */
 	while (*s)
 	{
-		char ch;
 		int n = 0;
 		int len = wrap - pos;
 		int l_space = -1;
+
+		/* In case we are already past the wrap point (which can happen with
+		 * punctuation at the end of the line), make sure we don't overrun.
+		 */
+		if (len < 0)
+			len = 0;
 
 		/* If we are at the start of the line... */
 		if (pos == 0)
@@ -1810,17 +1044,8 @@ void text_out_to_file(byte a, cptr str)
 		}
 
 		/* Write that line to file */
-		for (n = 0; n < len; n++)
-		{
-			/* Ensure the character is printable */
-			ch = (my_isprint((unsigned char) s[n]) ? s[n] : ' ');
-
-			/* Write out the character */
-			file_writec(text_out_file, ch);
-
-			/* Increment */
-			pos++;
-		}
+		file_write(text_out_file, s, len);
+		pos += len;
 
 		/* Move 's' past the stuff we've written */
 		s += len;
@@ -2062,9 +1287,9 @@ void clear_from(int row)
  * It should return TRUE when editing of the buffer is "complete" (e.g. on
  * the press of RETURN).
  */
-bool askfor_aux_keypress(char *buf, size_t buflen, size_t *curs, size_t *len, char keypress, bool firsttime)
+bool askfor_aux_keypress(char *buf, size_t buflen, size_t *curs, size_t *len, struct keypress keypress, bool firsttime)
 {
-	switch (keypress)
+	switch (keypress.code)
 	{
 		case ESCAPE:
 		{
@@ -2128,8 +1353,7 @@ bool askfor_aux_keypress(char *buf, size_t buflen, size_t *curs, size_t *len, ch
 		{
 			bool atnull = (buf[*curs] == 0);
 
-
-			if (!my_isprint((unsigned char)keypress))
+			if (!isprint(keypress.code))
 			{
 				bell("Illegal edit key!");
 				break;
@@ -2159,7 +1383,7 @@ bool askfor_aux_keypress(char *buf, size_t buflen, size_t *curs, size_t *len, ch
 			}
 
 			/* Insert the character */
-			buf[(*curs)++] = keypress;
+			buf[(*curs)++] = (char)keypress.code;
 			(*len)++;
 
 			/* Terminate */
@@ -2196,14 +1420,14 @@ bool askfor_aux_keypress(char *buf, size_t buflen, size_t *curs, size_t *len, ch
  * 'askfor_aux_keypress' (the default handler if you supply NULL for
  * 'keypress_h') for an example.
  */
-bool askfor_aux(char *buf, size_t len, bool keypress_h(char *, size_t, size_t *, size_t *, char, bool))
+bool askfor_aux(char *buf, size_t len, bool keypress_h(char *, size_t, size_t *, size_t *, struct keypress, bool))
 {
 	int y, x;
 
 	size_t k = 0;		/* Cursor position */
 	size_t nul = 0;		/* Position of the null byte in the string */
 
-	char ch = '\0';
+	struct keypress ch = { 0 };
 
 	bool done = FALSE;
 	bool firsttime = TRUE;
@@ -2255,7 +1479,7 @@ bool askfor_aux(char *buf, size_t len, bool keypress_h(char *, size_t, size_t *,
 	}
 
 	/* Done */
-	return (ch != ESCAPE);
+	return (ch.code != ESCAPE);
 }
 
 
@@ -2264,11 +1488,11 @@ bool askfor_aux(char *buf, size_t len, bool keypress_h(char *, size_t, size_t *,
  * case of '*' for a new random "name" and passes any other "keypress"
  * through to the default "editing" handler.
  */
-static bool get_name_keypress(char *buf, size_t buflen, size_t *curs, size_t *len, char keypress, bool firsttime)
+static bool get_name_keypress(char *buf, size_t buflen, size_t *curs, size_t *len, struct keypress keypress, bool firsttime)
 {
 	bool result;
 
-	switch (keypress)
+	switch (keypress.code)
 	{
 		case '*':
 		{
@@ -2278,8 +1502,7 @@ static bool get_name_keypress(char *buf, size_t buflen, size_t *curs, size_t *le
 			result = FALSE;
 			break;
 		}
-		
-		
+
 		default:
 		{
 			result = askfor_aux_keypress(buf, buflen, curs, len, keypress, firsttime);
@@ -2336,7 +1559,7 @@ bool get_name(char *buf, size_t buflen)
  * See "askfor_aux" for some notes about "buf" and "len", and about
  * the return value of this function.
  */
-bool get_string(cptr prompt, char *buf, size_t len)
+bool get_string(const char *prompt, char *buf, size_t len)
 {
 	bool res;
 
@@ -2348,9 +1571,6 @@ bool get_string(cptr prompt, char *buf, size_t len)
 
 	/* Ask the user for a string */
 	res = askfor_aux(buf, len, NULL);
-
-	/* Translate it to 8-bit (Latin-1) */
- 	xstr_trans(buf, LATIN1);
 
 	/* Clear prompt */
 	prt("", 0, 0);
@@ -2366,7 +1586,7 @@ bool get_string(cptr prompt, char *buf, size_t len)
  *
  * Allow "p_ptr->command_arg" to specify a quantity
  */
-s16b get_quantity(cptr prompt, int max)
+s16b get_quantity(const char *prompt, int max)
 {
 	int amt = 1;
 
@@ -2429,9 +1649,9 @@ s16b get_quantity(cptr prompt, int max)
  *
  * Note that "[y/n]" is appended to the prompt.
  */
-bool get_check(cptr prompt)
+bool get_check(const char *prompt)
 {
-	ui_event_data ke;
+	struct keypress ke;
 
 	char buf[80];
 
@@ -2449,11 +1669,11 @@ bool get_check(cptr prompt)
 	/* Make some buttons */
 	button_add("[y]", 'y');
 	button_add("[n]", 'n');
-	redraw_stuff();
+	redraw_stuff(p_ptr);
   
 	/* Prompt for it */
 	prt(buf, 0, 0);
-	ke = inkey_ex();
+	ke = inkey();
 
 	/* Kill the buttons */
 	button_kill('y');
@@ -2461,13 +1681,13 @@ bool get_check(cptr prompt)
 
 	/* Hack - restore the repeat button */
 	if (repeat) button_add("[Rpt]", 'n');
-	redraw_stuff();
+	redraw_stuff(p_ptr);
   
 	/* Erase the prompt */
 	prt("", 0, 0);
 
 	/* Normal negation */
-	if ((ke.key != 'Y') && (ke.key != 'y')) return (FALSE);
+	if ((ke.code != 'Y') && (ke.code != 'y')) return (FALSE);
 
 	/* Success */
 	return (TRUE);
@@ -2483,10 +1703,11 @@ bool get_check(cptr prompt)
  *     This prompts "Study? [yns]" and defaults to 'n'.
  *
  */
-char get_char(cptr prompt, const char *options, size_t len, char fallback)
+char get_char(const char *prompt, const char *options, size_t len, char fallback)
 {
 	size_t i;
-	char button[4], buf[80], key;
+	struct keypress key;
+	char button[4], buf[80];
 	bool repeat = FALSE;
   
 	/* Paranoia XXX XXX XXX */
@@ -2504,34 +1725,33 @@ char get_char(cptr prompt, const char *options, size_t len, char fallback)
 		strnfmt(button, 4, "[%c]", options[i]);
 		button_add(button, options[i]);
 	}
-	redraw_stuff();
+	redraw_stuff(p_ptr);
   
 	/* Prompt for it */
 	prt(buf, 0, 0);
 
 	/* Get an acceptable answer */
-	key = inkey_ex().key;
+	key = inkey();
 
 	/* Lowercase answer if necessary */
-	if (key >= 'A' && key <= 'Z') key += 32;
+	if (key.code >= 'A' && key.code <= 'Z') key.code += 32;
 
 	/* See if key is in our options string */
-	if (!strchr(options, key)) {
-		key = fallback;
-	}
+	if (!strchr(options, (char)key.code))
+		key.code = fallback;
 
 	/* Kill the buttons */
 	for (i = 0; i < len; i++) button_kill(options[i]);
 
 	/* Hack - restore the repeat button */
 	if (repeat) button_add("[Rpt]", 'n');
-	redraw_stuff();
+	redraw_stuff(p_ptr);
   
 	/* Erase the prompt */
 	prt("", 0, 0);
 
 	/* Success */
-	return key;
+	return key.code;
 }
 
 
@@ -2584,9 +1804,9 @@ bool (*get_file)(const char *suggested_name, char *path, size_t len) = get_file_
  *
  * Returns TRUE unless the character is "Escape"
  */
-bool get_com(cptr prompt, char *command)
+bool get_com(const char *prompt, struct keypress *command)
 {
-	ui_event_data ke;
+	ui_event ke;
 	bool result;
 
 	result = get_com_ex(prompt, &ke);
@@ -2596,9 +1816,9 @@ bool get_com(cptr prompt, char *command)
 }
 
 
-bool get_com_ex(cptr prompt, ui_event_data *command)
+bool get_com_ex(const char *prompt, ui_event *command)
 {
-	ui_event_data ke;
+	ui_event ke;
 
 	/* Paranoia XXX XXX XXX */
 	message_flush();
@@ -2616,7 +1836,9 @@ bool get_com_ex(cptr prompt, ui_event_data *command)
 	*command = ke;
 
 	/* Done */
-	return (ke.key != ESCAPE);
+	if (ke.type == EVT_KBRD && ke.key.code == ESCAPE)
+		return FALSE;
+	return TRUE;
 }
 
 
@@ -2625,16 +1847,13 @@ bool get_com_ex(cptr prompt, ui_event_data *command)
  *
  * This function is stupid.  XXX XXX XXX
  */
-void pause_line(int row)
+void pause_line(struct term *term)
 {
-	prt("", row, 0);
-	put_str("[Press any key to continue]", row, 23);
+	prt("", term->hgt - 1, 0);
+	put_str("[Press any key to continue]", term->hgt - 1, 23);
 	(void)anykey();
-	prt("", row, 0);
+	prt("", term->hgt - 1, 0);
 }
-
-
-
 
 /*
  * Check a char for "vowel-hood"
@@ -2691,7 +1910,7 @@ int color_char_to_attr(char c)
 /*
  * Converts a string to a terminal color byte.
  */
-int color_text_to_attr(cptr name)
+int color_text_to_attr(const char *name)
 {
 	int a;
 
@@ -2708,7 +1927,7 @@ int color_text_to_attr(cptr name)
 /*
  * Extract a textual representation of an attribute
  */
-cptr attr_to_text(byte a)
+const char *attr_to_text(byte a)
 {
 	if (a < BASIC_COLORS)
 		return (color_table[a].name);
@@ -2716,6 +1935,20 @@ cptr attr_to_text(byte a)
 		return ("Icky");
 }
 
+/**
+ * Return whether the given display char matches an entered symbol
+ *
+ * Horrible hack. TODO UTF-8 find some way of entering mb chars
+ */
+bool char_matches_key(wchar_t c, keycode_t key)
+{
+	wchar_t keychar[2];
+	char k[2] = {'\0', '\0'};
+
+	k[0] = (char)key;
+	Term_mbstowcs(keychar, k, 1);
+	return (c == keychar[0]);
+}
 
 #ifdef SUPPORT_GAMMA
 

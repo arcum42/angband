@@ -42,16 +42,16 @@ struct term_win
 	byte cx, cy;
 
 	byte **a;
-	char **c;
+	wchar_t **c;
 
 	byte *va;
-	char *vc;
+	wchar_t *vc;
 
 	byte **ta;
-	char **tc;
+	wchar_t **tc;
 
 	byte *vta;
-	char *vtc;
+	wchar_t *vtc;
 
 	term_win *next;
 };
@@ -181,9 +181,9 @@ struct term
 	bool never_frosh;
 
 	byte attr_blank;
-	char char_blank;
+	wchar_t char_blank;
 
-	ui_event_data *key_queue;
+	ui_event *key_queue;
 
 	u16b key_head;
 	u16b key_tail;
@@ -209,8 +209,8 @@ struct term
 	term_win *tmp;
 	term_win *mem;
 
-        /* Number of times saved */
-        byte saved;
+	/* Number of times saved */
+	byte saved;
 
 	void (*init_hook)(term *t);
 	void (*nuke_hook)(term *t);
@@ -223,11 +223,11 @@ struct term
 
 	errr (*wipe_hook)(int x, int y, int n);
 
-	errr (*text_hook)(int x, int y, int n, byte a, cptr s);
+	errr (*text_hook)(int x, int y, int n, byte a, const wchar_t *s);
 
-	errr (*pict_hook)(int x, int y, int n, const byte *ap, const char *cp, const byte *tap, const char *tcp);
+	errr (*pict_hook)(int x, int y, int n, const byte *ap, const wchar_t *cp, const byte *tap, const wchar_t *tcp);
 
-	byte (*xchar_hook)(byte c);
+	size_t (*mbcs_hook)(wchar_t *dest, const char *src, int n);
 };
 
 
@@ -329,6 +329,13 @@ struct term
 
 
 
+/* sketchy key logging pt. 1 */
+#define KEYLOG_SIZE 8
+extern int log_i;
+extern int log_size;
+struct keypress keylog[KEYLOG_SIZE];
+
+
 /**** Available Variables ****/
 
 extern term *Term;
@@ -340,36 +347,38 @@ extern bool smlcurs;
 /**** Available Functions ****/
 
 extern errr Term_xtra(int n, int v);
+extern size_t Term_mbstowcs(wchar_t *dest, const char *src, int n);
 
-extern void Term_queue_char(term *t, int x, int y, byte a, char c, byte ta, char tc);
+extern void Term_queue_char(term *t, int x, int y, byte a, wchar_t c, byte ta, wchar_t tc);
 extern void Term_big_queue_char(term *t, int x, int y, byte a, char c, byte a1, char c1);
-extern void Term_queue_chars(int x, int y, int n, byte a, cptr s);
+extern void Term_queue_chars(int x, int y, int n, byte a, const wchar_t *s);
 
 extern errr Term_fresh(void);
 extern errr Term_set_cursor(bool v);
 extern errr Term_gotoxy(int x, int y);
-extern errr Term_draw(int x, int y, byte a, char c);
-extern errr Term_addch(byte a, char c);
-extern errr Term_addstr(int n, byte a, cptr s);
-extern errr Term_putch(int x, int y, byte a, char c);
+extern errr Term_draw(int x, int y, byte a, wchar_t c);
+extern errr Term_addch(byte a, wchar_t c);
+extern errr Term_addstr(int n, byte a, const char *s);
+extern errr Term_putch(int x, int y, byte a, wchar_t c);
 extern void Term_big_putch(int x, int y, byte a, char c);
-extern errr Term_putstr(int x, int y, int n, byte a, cptr s);
+extern errr Term_putstr(int x, int y, int n, byte a, const char *s);
 extern errr Term_erase(int x, int y, int n);
 extern errr Term_clear(void);
 extern errr Term_redraw(void);
 extern errr Term_redraw_section(int x1, int y1, int x2, int y2);
+extern errr Term_mark(int x, int y);
 
 extern errr Term_get_cursor(bool *v);
 extern errr Term_get_size(int *w, int *h);
 extern errr Term_locate(int *x, int *y);
-extern errr Term_what(int x, int y, byte *a, char *c);
+extern errr Term_what(int x, int y, byte *a, wchar_t *c);
 
 extern errr Term_flush(void);
 extern errr Term_mousepress(int x, int y, char button);
-extern errr Term_keypress(int k);
+extern errr Term_keypress(keycode_t k, byte mods);
 extern errr Term_key_push(int k);
-extern errr Term_event_push(const ui_event_data *ke);
-extern errr Term_inkey(ui_event_data *ch, bool wait, bool take);
+extern errr Term_event_push(const ui_event *ke);
+extern errr Term_inkey(ui_event *ch, bool wait, bool take);
 
 extern errr Term_save(void);
 extern errr Term_load(void);
@@ -381,5 +390,6 @@ extern errr Term_activate(term *t);
 extern errr term_nuke(term *t);
 extern errr term_init(term *t, int w, int h, int k);
 
+extern bool panel_contains(unsigned int y, unsigned int x);
 
-#endif
+#endif /* INCLUDED_Z_TERM_H */

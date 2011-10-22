@@ -20,6 +20,7 @@
 #include "button.h"
 #include "cave.h"
 #include "cmds.h"
+#include "monster/mon-lore.h"
 #include "monster/monster.h"
 #include "object/inventory.h"
 #include "object/tvalsval.h"
@@ -33,7 +34,7 @@
  */
 void do_cmd_inven(void)
 {
-	ui_event_data e;
+	ui_event e;
 	int diff = weight_remaining();
 
 	/* Hack -- Start in "inventory" mode */
@@ -60,7 +61,7 @@ void do_cmd_inven(void)
 
 	/* Get a new command */
 	e = inkey_ex();
-	if (!(e.type == EVT_KBRD && e.key == ESCAPE))
+	if (!(e.type == EVT_KBRD && e.key.code == ESCAPE))
 		Term_event_push(&e);
 
 	/* Load screen */
@@ -73,7 +74,7 @@ void do_cmd_inven(void)
  */
 void do_cmd_equip(void)
 {
-	ui_event_data e;
+	ui_event e;
 
 	/* Hack -- Start in "equipment" mode */
 	p_ptr->command_wrk = (USE_EQUIP);
@@ -95,7 +96,7 @@ void do_cmd_equip(void)
 
 	/* Get a new command */
 	e = inkey_ex();
-	if (!(e.type == EVT_KBRD && e.key == ESCAPE))
+	if (!(e.type == EVT_KBRD && e.key.code == ESCAPE))
 		Term_event_push(&e);
 
 	/* Load screen */
@@ -142,18 +143,17 @@ void textui_cmd_destroy(void)
 
 	/* Flavour-aware squelch */
 	if (squelch_tval(o_ptr->tval) &&
-			(!artifact_p(o_ptr) || !object_flavor_is_aware(o_ptr))) {
+			(!o_ptr->artifact || !object_flavor_is_aware(o_ptr))) {
 		bool squelched = kind_is_squelched_aware(o_ptr->kind) ||
 				kind_is_squelched_unaware(o_ptr->kind);
 
-		char sval_name[50];
-		object_desc(sval_name, sizeof sval_name, o_ptr,
-				ODESC_BASE | ODESC_PLURAL);
+		char tmp[70];
+		object_desc(tmp, sizeof(tmp), o_ptr, ODESC_BASE | ODESC_PLURAL);
 		if (!squelched) {
-			strnfmt(out_val, sizeof out_val, "All %s", sval_name);
+			strnfmt(out_val, sizeof out_val, "All %s", tmp);
 			menu_dynamic_add(m, out_val, IGNORE_THIS_FLAVOR);
 		} else {
-			strnfmt(out_val, sizeof out_val, "Unignore all %s", sval_name);
+			strnfmt(out_val, sizeof out_val, "Unignore all %s", tmp);
 			menu_dynamic_add(m, out_val, UNIGNORE_THIS_FLAVOR);
 		}
 	}
@@ -219,71 +219,27 @@ void textui_cmd_toggle_ignore(void)
 	do_cmd_redraw();
 }
 
-void textui_obj_wield(object_type *o_ptr, int item)
-{
-	int slot = wield_slot(o_ptr);
-
-	/* Usually if the slot is taken we'll just replace the item in the slot,
-	 * but in some cases we need to ask the user which slot they actually
-	 * want to replace */
-	if (p_ptr->inventory[slot].k_idx)
-	{
-		if (o_ptr->tval == TV_RING)
-		{
-			cptr q = "Replace which ring? ";
-			cptr s = "Error in obj_wield, please report";
-			item_tester_hook = obj_is_ring;
-			if (!get_item(&slot, q, s, CMD_WIELD, USE_EQUIP)) return;
-		}
-
-		if (obj_is_ammo(o_ptr) && !object_similar(&p_ptr->inventory[slot],
-			o_ptr, OSTACK_QUIVER))
-		{
-			cptr q = "Replace which ammunition? ";
-			cptr s = "Error in obj_wield, please report";
-			item_tester_hook = obj_is_ammo;
-			if (!get_item(&slot, q, s, CMD_WIELD, USE_EQUIP)) return;
-		}
-	}
-
-	cmd_insert(CMD_WIELD);
-	cmd_set_arg_item(cmd_get_top(), 0, item);
-	cmd_set_arg_number(cmd_get_top(), 1, slot);
-}
-
-/* Inscribe an object */
-void textui_obj_inscribe(object_type *o_ptr, int item)
-{
-	char o_name[80];
-	char tmp[80] = "";
-
-	object_desc(o_name, sizeof(o_name), o_ptr, ODESC_PREFIX | ODESC_FULL);
-	msg("Inscribing %s.", o_name);
-	message_flush();
-
-	/* Use old inscription */
-	if (o_ptr->note)
-		strnfmt(tmp, sizeof(tmp), "%s", o_ptr->note);
-
-	/* Get a new inscription (possibly empty) */
-	if (get_string("Inscription: ", tmp, sizeof(tmp)))
-	{
-		cmd_insert(CMD_INSCRIBE);
-		cmd_set_arg_item(cmd_get_top(), 0, item);
-		cmd_set_arg_string(cmd_get_top(), 1, tmp);
-	}
-}
-
 /* Examine an object */
-void textui_obj_examine(object_type *o_ptr, int item)
+void textui_obj_examine(void)
 {
 	char header[120];
 
 	textblock *tb;
 	region area = { 0, 0, 0, 0 };
 
+	object_type *o_ptr;
+	int item;
+
+	/* Select item */
+	if (!get_item(&item, "Examine which item?", "You have nothing to examine.",
+			CMD_NULL, (USE_EQUIP | USE_INVEN | USE_FLOOR | IS_HARMLESS)))
+		return;
+
+	/* Track object for object recall */
 	track_object(item);
 
+	/* Display info */
+	o_ptr = object_from_item_idx(item);
 	tb = object_info(o_ptr, OINFO_NONE);
 	object_desc(header, sizeof(header), o_ptr, ODESC_PREFIX | ODESC_FULL);
 
@@ -379,7 +335,7 @@ void do_cmd_locate(void)
 		/* Get a direction */
 		while (!dir)
 		{
-			char command;
+			struct keypress command;
 
 			/* Get a command (or Cancel) */
 			if (!get_com(out_val, &command)) break;
@@ -398,121 +354,12 @@ void do_cmd_locate(void)
 		change_panel(dir);
 
 		/* Handle stuff */
-		handle_stuff();
+		handle_stuff(p_ptr);
 	}
 
 	/* Verify panel */
 	verify_panel();
 }
-
-
-
-
-
-
-/*
- * The table of "symbol info" -- each entry is a string of the form
- * "X:desc" where "X" is the trigger, and "desc" is the "info".
- */
-static cptr ident_info[] =
-{
-	" :A dark grid",
-	"!:A potion (or oil)",
-	"\":An amulet (or necklace)",
-	"#:A wall (or secret door)",
-	"$:Treasure (gold or gems)",
-	"%:A vein (magma or quartz)",
-	/* "&:unused", */
-	"':An open door",
-	"(:Soft armor",
-	"):A shield",
-	"*:A vein with treasure",
-	"+:A closed door",
-	",:Food (or mushroom patch)",
-	"-:A wand (or rod)",
-	".:Floor",
-	"/:A polearm (Axe/Pike/etc)",
-	/* "0:unused", */
-	"1:Entrance to General Store",
-	"2:Entrance to Armory",
-	"3:Entrance to Weaponsmith",
-	"4:Entrance to Temple",
-	"5:Entrance to Alchemy shop",
-	"6:Entrance to Magic store",
-	"7:Entrance to Black Market",
-	"8:Entrance to your home",
-	/* "9:unused", */
-	"::Rubble",
-	";:A glyph of warding",
-	"<:An up staircase",
-	"=:A ring",
-	">:A down staircase",
-	"?:A scroll",
-	"@:You",
-	"A:Angel",
-	"B:Bird",
-	"C:Canine",
-	"D:Ancient Dragon/Wyrm",
-	"E:Elemental",
-	"F:Dragon Fly",
-	"G:Ghost",
-	"H:Hybrid",
-	"I:Insect",
-	"J:Snake",
-	"K:Killer Beetle",
-	"L:Lich",
-	"M:Multi-Headed Reptile",
-	/* "N:unused", */
-	"O:Ogre",
-	"P:Giant Humanoid",
-	"Q:Quylthulg (Pulsing Flesh Mound)",
-	"R:Reptile/Amphibian",
-	"S:Spider/Scorpion/Tick",
-	"T:Troll",
-	"U:Major Demon",
-	"V:Vampire",
-	"W:Wight/Wraith/etc",
-	"X:Xorn/Xaren/etc",
-	"Y:Yeti",
-	"Z:Zephyr Hound",
-	"[:Hard armor",
-	"\\:A hafted weapon (mace/whip/etc)",
-	"]:Misc. armor",
-	"^:A trap",
-	"_:A staff",
-	/* "`:unused", */
-	"a:Ant",
-	"b:Bat",
-	"c:Centipede",
-	"d:Dragon",
-	"e:Floating Eye",
-	"f:Feline",
-	"g:Golem",
-	"h:Hobbit/Elf/Dwarf",
-	"i:Icky Thing",
-	"j:Jelly",
-	"k:Kobold",
-	"l:Louse",
-	"m:Mold",
-	"n:Naga",
-	"o:Orc",
-	"p:Person/Human",
-	"q:Quadruped",
-	"r:Rodent",
-	"s:Skeleton",
-	"t:Townsperson",
-	"u:Minor Demon",
-	"v:Vortex",
-	"w:Worm/Worm-Mass",
-	/* "x:unused", */
-	"y:Yeek",
-	"z:Zombie/Mummy",
-	"{:A missile (arrow/bolt/shot)",
-	"|:An edged weapon (sword/dagger/etc)",
-	"}:A launcher (bow/crossbow/sling)",
-	"~:A tool (or miscellaneous item)",
-	NULL
-};
 
 static int cmp_mexp(const void *a, const void *b)
 {
@@ -564,6 +411,61 @@ int cmp_monsters(const void *a, const void *b)
 }
 
 /*
+ * Search the monster, item, and feature types to find the
+ * meaning for the given symbol.
+ *
+ * Note: We currently search items first, then features, then
+ * monsters, and we return the first hit for a symbol.
+ * This is to prevent mimics and lurkers from matching
+ * a symbol instead of the item or feature it is mimicking.
+ *
+ * Todo: concatenate all matches into buf. This will be much
+ * easier once we can loop through item tvals instead of items
+ * (see note below.)
+ *
+ * Todo: Should this take the user's pref files into account?
+ */
+static void lookup_symbol(struct keypress sym, char *buf, size_t max)
+{
+	int i;
+	monster_base *race;
+
+	/* Look through items */
+	/* Note: We currently look through all items, and grab the tval when we find a match.
+	It would make more sense to loop through tvals, but then we need to associate
+	a display character with each tval. */
+	for (i = 1; i < z_info->k_max; i++) {
+		if (char_matches_key(k_info[i].d_char, sym.code)) {
+			strnfmt(buf, max, "%c - %s.", (char)sym.code, tval_find_name(k_info[i].tval));
+			return;
+		}
+	}
+
+	/* Look through features */
+	/* Note: We need a better way of doing this. Currently '#' matches secret door,
+	and '^' matches trap door (instead of the more generic "trap"). */
+	for (i = 1; i < z_info->f_max; i++) {
+		if (char_matches_key(f_info[i].d_char, sym.code)) {
+			strnfmt(buf, max, "%c - %s.", (char)sym.code, f_info[i].name);
+			return;
+		}
+	}
+	
+	/* Look through monster templates */
+	for (race = rb_info; race; race = race->next){
+		if (char_matches_key(race->d_char, sym.code)) {
+			strnfmt(buf, max, "%c - %s.", (char)sym.code, race->text);
+			return;
+		}
+	}
+
+	/* No matches */
+	strnfmt(buf, max, "%c - %s.", (char)sym.code, "Unknown Symbol");
+	
+	return;
+}
+
+/*
  * Identify a character, allow recall of monsters
  *
  * Several "special" responses recall "multiple" monsters:
@@ -578,10 +480,10 @@ int cmp_monsters(const void *a, const void *b)
 void do_cmd_query_symbol(void)
 {
 	int i, n, r_idx;
-	char sym;
 	char buf[128];
 
-	ui_event_data query;
+	struct keypress sym;
+	struct keypress query;
 
 	bool all = FALSE;
 	bool uniq = FALSE;
@@ -591,44 +493,36 @@ void do_cmd_query_symbol(void)
 
 	u16b *who;
 
+	const monster_race *r_ptr;
+	const monster_lore *l_ptr;
 
 	/* Get a character, or abort */
-	if (!get_com("Enter character to be identified, or control+[ANU]: ", &sym)) return;
-
-	/* Find that character info, and describe it */
-	for (i = 0; ident_info[i]; ++i)
-	{
-		if (sym == ident_info[i][0]) break;
-	}
+	if (!get_com("Enter character to be identified, or control+[ANU]: ", &sym))
+		return;
 
 	/* Describe */
-	if (sym == KTRL('A'))
+	if (sym.code == KTRL('A'))
 	{
 		all = TRUE;
 		my_strcpy(buf, "Full monster list.", sizeof(buf));
 	}
-	else if (sym == KTRL('U'))
+	else if (sym.code == KTRL('U'))
 	{
 		all = uniq = TRUE;
 		my_strcpy(buf, "Unique monster list.", sizeof(buf));
 	}
-	else if (sym == KTRL('N'))
+	else if (sym.code == KTRL('N'))
 	{
 		all = norm = TRUE;
 		my_strcpy(buf, "Non-unique monster list.", sizeof(buf));
 	}
-	else if (ident_info[i])
-	{
-		strnfmt(buf, sizeof(buf), "%c - %s.", sym, ident_info[i] + 2);
-	}
 	else
 	{
-		strnfmt(buf, sizeof(buf), "%c - %s.", sym, "Unknown Symbol");
+		lookup_symbol(sym, buf, sizeof(buf));
 	}
 
 	/* Display the result */
 	prt(buf, 0, 0);
-
 
 	/* Allocate the "who" array */
 	who = C_ZNEW(z_info->r_max, u16b);
@@ -649,7 +543,7 @@ void do_cmd_query_symbol(void)
 		if (uniq && !rf_has(r_ptr->flags, RF_UNIQUE)) continue;
 
 		/* Collect "appropriate" monsters */
-		if (all || (r_ptr->d_char == sym)) who[n++] = i;
+		if (all || char_matches_key(r_ptr->d_char, sym.code)) who[n++] = i;
 	}
 
 	/* Nothing to recall */
@@ -666,13 +560,13 @@ void do_cmd_query_symbol(void)
 	button_add("[k]", 'k');
 	/* Don't collide with the repeat button */
 	button_add("[n]", 'q'); 
-	redraw_stuff();
+	redraw_stuff(p_ptr);
 
 	/* Prompt */
 	put_str("Recall details? (y/k/n): ", 0, 40);
 
 	/* Query */
-	query = inkey_ex();
+	query = inkey();
 
 	/* Restore */
 	prt(buf, 0, 0);
@@ -681,15 +575,15 @@ void do_cmd_query_symbol(void)
 	button_kill('y');
 	button_kill('k');
 	button_kill('q');
-	redraw_stuff();
+	redraw_stuff(p_ptr);
 
 	/* Interpret the response */
-	if (query.key == 'k')
+	if (query.code == 'k')
 	{
 		/* Sort by kills (and level) */
 		sort(who, n, sizeof(*who), cmp_pkill);
 	}
-	else if (query.key == 'y' || query.key == 'p')
+	else if (query.code == 'y' || query.code == 'p')
 	{
 		/* Sort by level; accept 'p' as legacy */
 		sort(who, n, sizeof(*who), cmp_level);
@@ -711,22 +605,24 @@ void do_cmd_query_symbol(void)
 	button_add("[r]", 'r');
 	button_add("[-]", '-');
 	button_add("[+]", '+');
-	redraw_stuff();
+	redraw_stuff(p_ptr);
 
 	/* Scan the monster memory */
 	while (1)
 	{
 		/* Extract a race */
 		r_idx = who[i];
+		r_ptr = &r_info[r_idx];
+		l_ptr = &l_list[r_idx];
 
 		/* Hack -- Auto-recall */
 		monster_race_track(r_idx);
 
 		/* Hack -- Handle stuff */
-		handle_stuff();
+		handle_stuff(p_ptr);
 
 		/* Hack -- Begin the prompt */
-		roff_top(r_idx);
+		roff_top(r_ptr);
 
 		/* Hack -- Complete the prompt */
 		Term_addstr(-1, TERM_WHITE, " [(r)ecall, ESC]");
@@ -741,14 +637,14 @@ void do_cmd_query_symbol(void)
 				screen_save();
 
 				/* Recall on screen */
-				screen_roff(who[i]);
+				screen_roff(r_ptr, l_ptr);
 
 				/* Hack -- Complete the prompt (again) */
 				Term_addstr(-1, TERM_WHITE, " [(r)ecall, ESC]");
 			}
 
 			/* Command */
-			query = inkey_ex();
+			query = inkey();
 
 			/* Unrecall */
 			if (recall)
@@ -758,17 +654,17 @@ void do_cmd_query_symbol(void)
 			}
 
 			/* Normal commands */
-			if (query.key != 'r') break;
+			if (query.code != 'r') break;
 
 			/* Toggle recall */
 			recall = !recall;
 		}
 
 		/* Stop scanning */
-		if (query.key == ESCAPE) break;
+		if (query.code == ESCAPE) break;
 
 		/* Move to "prev" monster */
-		if (query.key == '-')
+		if (query.code == '-')
 		{
 			if (++i == n)
 				i = 0;
@@ -786,7 +682,7 @@ void do_cmd_query_symbol(void)
 	button_kill('r');
 	button_kill('-');
 	button_kill('+');
-	redraw_stuff();
+	redraw_stuff(p_ptr);
 
 	/* Re-display the identity */
 	prt(buf, 0, 0);

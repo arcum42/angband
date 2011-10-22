@@ -19,6 +19,7 @@
 #include "angband.h"
 #include "cave.h"
 #include "history.h"
+#include "monster/mon-make.h"
 #include "monster/monster.h"
 #include "option.h"
 #include "savefile.h"
@@ -34,7 +35,7 @@ static void wr_item(const object_type *o_ptr)
 	wr_u16b(0xffff);
 	wr_byte(ITEM_VERSION);
 
-	wr_s16b(o_ptr->k_idx);
+	wr_s16b(0);
 
 	/* Location */
 	wr_byte(o_ptr->iy);
@@ -53,8 +54,11 @@ static void wr_item(const object_type *o_ptr)
 	wr_byte(o_ptr->number);
 	wr_s16b(o_ptr->weight);
 
-	wr_byte(o_ptr->name1);
-	wr_byte(o_ptr->name2);
+	if (o_ptr->artifact) wr_byte(o_ptr->artifact->aidx);
+	else wr_byte(0);
+
+	if (o_ptr->ego) wr_byte(o_ptr->ego->eidx);
+	else wr_byte(0);
 
 	wr_s16b(o_ptr->timeout);
 
@@ -89,11 +93,13 @@ static void wr_item(const object_type *o_ptr)
 
 	/* Held by monster index */
 	wr_s16b(o_ptr->held_m_idx);
+	
+	wr_s16b(o_ptr->mimicking_m_idx);
 
 	/* Save the inscription (if any) */
 	if (o_ptr->note)
 	{
-		wr_string(o_ptr->note);
+		wr_string(quark_str(o_ptr->note));
 	}
 	else
 	{
@@ -106,7 +112,7 @@ static void wr_item(const object_type *o_ptr)
  * Write RNG state
  *
  * There were originally 64 bytes of randomizer saved. Now we only need
- * 32 + 4 bytes saved, so we'll write an extra 28 bytes at the end which won't
+ * 32 + 5 bytes saved, so we'll write an extra 27 bytes at the end which won't
  * be used.
  */
 void wr_randomizer(void)
@@ -129,7 +135,7 @@ void wr_randomizer(void)
 		wr_u32b(STATE[i]);
 
 	/* NULL padding */
-	for (i = 0; i < 60 - RAND_DEG; i++)
+	for (i = 0; i < 59 - RAND_DEG; i++)
 		wr_u32b(0);
 }
 
@@ -443,7 +449,7 @@ void wr_squelch(void)
 		if (!k_info[i].note)
 			continue;
 		wr_s16b(i);
-		wr_string(k_info[i].note);
+		wr_string(quark_str(k_info[i].note));
 	}
 
 	return;
@@ -453,8 +459,8 @@ void wr_squelch(void)
 void wr_misc(void)
 {
 
-	/* Random artifact version */
-	wr_u32b(RANDART_VERSION);
+	/* XXX Old random artifact version, remove after 3.3 */
+	wr_u32b(63);
 
 	/* Random artifact seed */
 	wr_u32b(seed_randart);
@@ -482,6 +488,7 @@ void wr_misc(void)
 
 	/* Write feeling */
 	wr_byte(cave->feeling);
+	wr_u16b(cave->feeling_squares);
 	wr_s32b(cave->created_at);
 
 	/* Current turn */
@@ -514,60 +521,11 @@ void wr_player_spells(void)
 
 
 /*
- * Dump the random artifacts
+ * We no longer save the random artifacts
  */
 void wr_randarts(void)
 {
-	size_t i, j, k;
-
-	if (!OPT(birth_randarts))
-		return;
-
-	wr_u16b(z_info->a_max);
-
-	for (i = 0; i < z_info->a_max; i++)
-	{
-		artifact_type *a_ptr = &a_info[i];
-
-		wr_byte(a_ptr->tval);
-		wr_byte(a_ptr->sval);
-		for (j = 0; j < MAX_PVALS; j++)
-			wr_s16b(a_ptr->pval[j]);
-		wr_byte(a_ptr->num_pvals);
-
-		wr_s16b(a_ptr->to_h);
-		wr_s16b(a_ptr->to_d);
-		wr_s16b(a_ptr->to_a);
-		wr_s16b(a_ptr->ac);
-
-		wr_byte(a_ptr->dd);
-		wr_byte(a_ptr->ds);
-
-		wr_s16b(a_ptr->weight);
-
-		wr_s32b(a_ptr->cost);
-
-		for (j = 0; j < OF_BYTES && j < OF_SIZE; j++)
-			wr_byte(a_ptr->flags[j]);
-		if (j < OF_BYTES) pad_bytes(OF_BYTES - j);
-
-		for (k = 0; k < MAX_PVALS; k++) {
-			for (j = 0; j < OF_BYTES && j < OF_SIZE; j++)
-				wr_byte(a_ptr->pval_flags[k][j]);
-			if (j < OF_BYTES) pad_bytes(OF_BYTES - j);
-		}
-
-		wr_byte(a_ptr->level);
-		wr_byte(a_ptr->rarity);
-		wr_byte(a_ptr->alloc_prob);
-		wr_byte(a_ptr->alloc_min);
-		wr_byte(a_ptr->alloc_max);
-
-		wr_u16b(a_ptr->effect);
-		wr_u16b(a_ptr->time.base);
-		wr_u16b(a_ptr->time.dice);
-		wr_u16b(a_ptr->time.sides);
-	}
+	return;
 }
 
 
@@ -581,7 +539,7 @@ void wr_inventory(void)
 		object_type *o_ptr = &p_ptr->inventory[i];
 
 		/* Skip non-objects */
-		if (!o_ptr->k_idx) continue;
+		if (!o_ptr->kind) continue;
 
 		/* Dump index */
 		wr_u16b((u16b)i);
@@ -602,7 +560,7 @@ void wr_stores(void)
 	wr_u16b(MAX_STORES);
 	for (i = 0; i < MAX_STORES; i++)
 	{
-		const store_type *st_ptr = &store[i];
+		const struct store *st_ptr = &stores[i];
 		int j;
 
 		/* XXX Old values */
@@ -656,8 +614,8 @@ void wr_dungeon(void)
 	wr_u16b(daycount);
 	wr_u16b(p_ptr->py);
 	wr_u16b(p_ptr->px);
-	wr_u16b(DUNGEON_HGT);
-	wr_u16b(DUNGEON_WID);
+	wr_u16b(cave->height);
+	wr_u16b(cave->width);
 	wr_u16b(0);
 	wr_u16b(0);
 
@@ -801,7 +759,7 @@ void wr_objects(void)
 	/* Dump the objects */
 	for (i = 1; i < o_max; i++)
 	{
-		object_type *o_ptr = &o_list[i];
+		object_type *o_ptr = object_byid(i);
 
 		/* Dump it */
 		wr_item(o_ptr);
@@ -812,29 +770,39 @@ void wr_objects(void)
 void wr_monsters(void)
 {
 	int i;
+	size_t j;
 
 	if (p_ptr->is_dead)
 		return;
 
 	/* Total monsters */
-	wr_u16b(mon_max);
+	wr_u16b(cave_monster_max(cave));
 
 	/* Dump the monsters */
-	for (i = 1; i < mon_max; i++)
-	{
-		const monster_type *m_ptr = &mon_list[i];
+	for (i = 1; i < cave_monster_max(cave); i++) {
+		byte unaware = 0;
+	
+		const monster_type *m_ptr = cave_monster(cave, i);
 
 		wr_s16b(m_ptr->r_idx);
 		wr_byte(m_ptr->fy);
 		wr_byte(m_ptr->fx);
 		wr_s16b(m_ptr->hp);
 		wr_s16b(m_ptr->maxhp);
-		wr_s16b(m_ptr->csleep);
 		wr_byte(m_ptr->mspeed);
 		wr_byte(m_ptr->energy);
-		wr_byte(m_ptr->stunned);
-		wr_byte(m_ptr->confused);
-		wr_byte(m_ptr->monfear);
+		wr_byte(MON_TMD_MAX);
+
+		for (j = 0; j < MON_TMD_MAX; j++)
+			wr_s16b(m_ptr->m_timed[j]);
+
+		if (m_ptr->unaware) unaware |= 0x01;
+		wr_byte(unaware);
+
+		for (j = 0; j < OF_BYTES && j < OF_SIZE; j++)
+			wr_byte(m_ptr->known_pflags[j]);
+		if (j < OF_BYTES) pad_bytes(OF_BYTES - j);
+		
 		wr_byte(0);
 	}
 }

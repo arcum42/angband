@@ -4,15 +4,15 @@
 #include "z-textblock.h"
 #include "z-term.h"
 
-static int setup(void **state) {
+int setup_tests(void **state) {
 	ok;
 }
 
-static int teardown(void *state) {
+int teardown_tests(void *state) {
 	ok;
 }
 
-static int test_alloc(void *state) {
+int test_alloc(void *state) {
 	textblock *tb = textblock_new();
 
 	require(tb);
@@ -22,21 +22,21 @@ static int test_alloc(void *state) {
 	ok;
 }
 
-static int test_append(void *state) {
+int test_append(void *state) {
 	textblock *tb = textblock_new();
 
-	require(!strcmp(textblock_text(tb), ""));
+	require(!wcscmp(textblock_text(tb), L""));
 
 	textblock_append(tb, "Hello");
-	require(!strcmp(textblock_text(tb), "Hello"));
+	require(!wcscmp(textblock_text(tb), L"Hello"));
 
 	textblock_append(tb, "%d", 20);
-	require(!strcmp(textblock_text(tb), "Hello20"));
+	require(!wcscmp(textblock_text(tb), L"Hello20"));
 
 	ok;
 }
 
-static int test_colour(void *state) {
+int test_colour(void *state) {
 	textblock *tb = textblock_new();
 
 	const char text[] = "two";
@@ -49,13 +49,14 @@ static int test_colour(void *state) {
 	ok;
 }
 
-static int test_length(void *state) {
+int test_length(void *state) {
 	textblock *tb = textblock_new();
 
 	const char text[] = "1234567";
+	const wchar_t test_text[] = L"1234567";
 	int i;
 
-	const char *tb_text;
+	const wchar_t *tb_text;
 
 	/* Add it 32 times to make sure that appending definitely works */
 	for (i = 0; i < 32; i++) {
@@ -68,14 +69,14 @@ static int test_length(void *state) {
 		int n = N_ELEMENTS(text) - 1;
 		int offset = i * n;
 
-	 	require(!memcmp(tb_text + offset, text, n));
+	 	require(!wmemcmp(tb_text + offset, test_text, n));
 	}
 
 	ok;
 }
 
-static const char *suite_name = "z-textblock/textblock";
-static struct test tests[] = {
+const char *suite_name = "z-textblock/textblock";
+struct test tests[] = {
 	{ "alloc", test_alloc },
 	{ "append", test_append },
 	{ "colour", test_colour },

@@ -17,12 +17,14 @@
  */
 
 #include "angband.h"
+#include "buildid.h"
 #include "cave.h"
 #include "cmds.h"
+#include "files.h"
 #include "game-cmd.h"
 #include "history.h"
 #include "object/tvalsval.h"
-#include "object/object.h"
+#include "object/pval.h"
 #include "option.h"
 #include "savefile.h"
 #include "ui-menu.h"
@@ -33,7 +35,7 @@
  * Returns a "rating" of x depending on y, and sets "attr" to the
  * corresponding "attribute".
  */
-static cptr likert(int x, int y, byte *attr)
+static const char *likert(int x, int y, byte *attr)
 {
 	/* Paranoia */
 	if (y <= 0) y = 1;
@@ -113,7 +115,7 @@ static cptr likert(int x, int y, byte *attr)
 void player_flags(bitflag f[OF_SIZE])
 {
 	/* Add racial flags */
-	memcpy(f, rp_ptr->flags, sizeof(rp_ptr->flags));
+	memcpy(f, p_ptr->race->flags, sizeof(p_ptr->race->flags));
 
 	/* Some classes become immune to fear at a certain plevel */
 	if (player_has(PF_BRAVERY_30) && p_ptr->lev >= 30)
@@ -129,7 +131,7 @@ static void display_player_equippy(int y, int x)
 	int i;
 
 	byte a;
-	char c;
+	wchar_t c;
 
 	object_type *o_ptr;
 
@@ -141,7 +143,7 @@ static void display_player_equippy(int y, int x)
 		o_ptr = &p_ptr->inventory[i];
 
 		/* Skip empty objects */
-		if (!o_ptr->k_idx) continue;
+		if (!o_ptr->kind) continue;
 
 		/* Get attr/char for display */
 		a = object_attr(o_ptr);
@@ -183,11 +185,11 @@ static const struct player_flag_record player_flag_table[RES_ROWS*4] =
 	{ "Nethr",	OF_RES_NETHR,   FLAG_END,   FLAG_END },
 	{ "Chaos",	OF_RES_CHAOS,   FLAG_END,   FLAG_END },
 	{ "Disen",	OF_RES_DISEN,   FLAG_END,   FLAG_END },
-	{ "S.Dig",	OF_SLOW_DIGEST, FLAG_END,   FLAG_END },
 	{ "Feath",	OF_FEATHER,     FLAG_END,   FLAG_END },
 	{ "pFear",	OF_RES_FEAR,    FLAG_END,   FLAG_END },
 	{ "pBlnd",	OF_RES_BLIND,   FLAG_END,   FLAG_END },
 	{ "pConf",	OF_RES_CONFU,   FLAG_END,   FLAG_END },
+	{ "pStun",	OF_RES_STUN,	FLAG_END,   FLAG_END },
 
 	{ "Light",	OF_LIGHT,       FLAG_END,   FLAG_END },
 	{ "Regen",	OF_REGEN,       FLAG_END,   FLAG_END },
@@ -204,8 +206,8 @@ static const struct player_flag_record player_flag_table[RES_ROWS*4] =
 	{ "Blows",	OF_BLOWS,       FLAG_END,   FLAG_END },
 	{ "Shots",	OF_SHOTS,       FLAG_END,   FLAG_END },
 	{ "Might",	OF_MIGHT,       FLAG_END,   FLAG_END },
+	{ "S.Dig",	OF_SLOW_DIGEST, FLAG_END,   FLAG_END },
 	{ "ImpHP",	OF_IMPAIR_HP,   FLAG_END,   FLAG_END },
-	{ "ImpSP",	OF_IMPAIR_MANA, FLAG_END,   FLAG_END },
 	{ " Fear",	OF_AFRAID,      FLAG_END,   FLAG_END },
 	{ "Aggrv",	OF_AGGRAVATE,   FLAG_END,   FLAG_END },
 };
@@ -244,7 +246,7 @@ static void display_resistance_panel(const struct player_flag_record *resists,
 			/* Wipe flagset */
 			of_wipe(f);
 
-			if (j < INVEN_TOTAL && o_ptr->k_idx)
+			if (j < INVEN_TOTAL && o_ptr->kind)
 			{
 				object_flags_known(o_ptr, f);
 			}
@@ -255,9 +257,9 @@ static void display_resistance_panel(const struct player_flag_record *resists,
 				/* If the race has innate infravision/digging, force the corresponding flag
 				   here.  If we set it in player_flags(), then all callers of that
 				   function will think the infravision is caused by equipment. */
-				if (rp_ptr->infra > 0)
+				if (p_ptr->race->infra > 0)
 					of_on(f, OF_INFRA);
-				if (rp_ptr->r_skills[SKILL_DIGGING] > 0)
+				if (p_ptr->race->r_skills[SKILL_DIGGING] > 0)
 					of_on(f, OF_TUNNEL);
 			}
 
@@ -271,7 +273,7 @@ static void display_resistance_panel(const struct player_flag_record *resists,
 			if (vuln) sym = '-';
 			else if (imm) sym = '*';
 			else if (res) sym = '+';
-			else if ((j < INVEN_TOTAL) && o_ptr->k_idx && 
+			else if ((j < INVEN_TOTAL) && o_ptr->kind && 
 				!object_flag_is_known(o_ptr, resists[i].res_flag)) sym = '?';
 			Term_addch(attr, sym);
 		}
@@ -320,7 +322,7 @@ void display_player_stat_info(void)
 	for (i = 0; i < A_MAX; i++)
 	{
 		/* Reduced */
-		if (p_ptr->state.stat_use[i] < p_ptr->state.stat_top[i])
+		if (p_ptr->stat_cur[i] < p_ptr->stat_max[i])
 		{
 			/* Use lowercase stat name */
 			put_str(stat_names_reduced[i], row+i, col);
@@ -344,11 +346,11 @@ void display_player_stat_info(void)
 		c_put_str(TERM_L_GREEN, buf, row+i, col+5);
 
 		/* Race Bonus */
-		strnfmt(buf, sizeof(buf), "%+3d", rp_ptr->r_adj[i]);
+		strnfmt(buf, sizeof(buf), "%+3d", p_ptr->race->r_adj[i]);
 		c_put_str(TERM_L_BLUE, buf, row+i, col+12);
 
 		/* Class Bonus */
-		strnfmt(buf, sizeof(buf), "%+3d", cp_ptr->c_adj[i]);
+		strnfmt(buf, sizeof(buf), "%+3d", p_ptr->class->c_adj[i]);
 		c_put_str(TERM_L_BLUE, buf, row+i, col+16);
 
 		/* Equipment Bonus */
@@ -359,8 +361,8 @@ void display_player_stat_info(void)
 		cnv_stat(p_ptr->state.stat_top[i], buf, sizeof(buf));
 		c_put_str(TERM_L_GREEN, buf, row+i, col+24);
 
-		/* Only display stat_use if not maximal */
-		if (p_ptr->state.stat_use[i] < p_ptr->state.stat_top[i])
+		/* Only display stat_use if there has been draining */
+		if (p_ptr->stat_cur[i] < p_ptr->stat_max[i])
 		{
 			cnv_stat(p_ptr->state.stat_use[i], buf, sizeof(buf));
 			c_put_str(TERM_YELLOW, buf, row+i, col+31);
@@ -423,6 +425,11 @@ static void display_player_sust_info(void)
 		/* Get the object */
 		o_ptr = &p_ptr->inventory[i];
 
+		if (!o_ptr->kind) {
+			col++;
+			continue;
+		}
+
 		/* Get the "known" flags */
 		object_flags_known(o_ptr, f);
 
@@ -475,7 +482,7 @@ static void display_player_sust_info(void)
 				if (c == '.') c = 's';
 			}
 
-			if ((c == '.') && o_ptr->k_idx && !object_flag_is_known(o_ptr, sustain_flags[stat]))
+			if ((c == '.') && o_ptr->kind && !object_flag_is_known(o_ptr, sustain_flags[stat]))
 				c = '?';
 
 			/* Dump proper character */
@@ -578,7 +585,7 @@ static const char *show_title(void)
 	else if (p_ptr->total_winner || p_ptr->lev > PY_MAX_LEVEL)
 		return "***WINNER***";
 	else
-		return cp_ptr->title[(p_ptr->lev - 1) / 5];
+		return p_ptr->class->title[(p_ptr->lev - 1) / 5];
 }
 
 static const char *show_adv_exp(void)
@@ -729,9 +736,9 @@ static int get_panel(int oid, data_panel *panel, size_t size)
 	assert( size >= (u32b) boundaries[1].page_rows);
 	ret = boundaries[1].page_rows;
 	P_I(TERM_L_BLUE, "Name",	"%y",	s2u(op_ptr->full_name), END  );
-	P_I(TERM_L_BLUE, "Sex",		"%y",	s2u(sp_ptr->title), END  );
-	P_I(TERM_L_BLUE, "Race",	"%y",	s2u(rp_ptr->name), END  );
-	P_I(TERM_L_BLUE, "Class",	"%y",	s2u(cp_ptr->name), END  );
+	P_I(TERM_L_BLUE, "Sex",		"%y",	s2u(p_ptr->sex->title), END  );
+	P_I(TERM_L_BLUE, "Race",	"%y",	s2u(p_ptr->race->name), END  );
+	P_I(TERM_L_BLUE, "Class",	"%y",	s2u(p_ptr->class->name), END  );
 	P_I(TERM_L_BLUE, "Title",	"%y",	s2u(show_title()), END  );
 	P_I(TERM_L_BLUE, "HP",	"%y/%y",	i2u(p_ptr->chp), i2u(p_ptr->mhp)  );
 	P_I(TERM_L_BLUE, "SP",	"%y/%y",	i2u(p_ptr->csp), i2u(p_ptr->msp)  );
@@ -765,8 +772,8 @@ static int get_panel(int oid, data_panel *panel, size_t size)
 	P_I(TERM_L_BLUE, "Fight", "(%+y,%+y)",	i2u(p_ptr->state.dis_to_h), i2u(p_ptr->state.dis_to_d)  );
 	P_I(TERM_L_BLUE, "Melee", "%y",		s2u(show_melee_weapon(&p_ptr->inventory[INVEN_WIELD])), END  );
 	P_I(TERM_L_BLUE, "Shoot", "%y",		s2u(show_missile_weapon(&p_ptr->inventory[INVEN_BOW])), END  );
-	P_I(TERM_L_BLUE, "Blows", "%y.%y/turn",	i2u(p_ptr->state.num_blow / 100), i2u((p_ptr->state.num_blow / 10) % 10) );
-	P_I(TERM_L_BLUE, "Shots", "%y/turn",	i2u(p_ptr->state.num_fire), END  );
+	P_I(TERM_L_BLUE, "Blows", "%y.%y/turn",	i2u(p_ptr->state.num_blows / 100), i2u((p_ptr->state.num_blows / 10) % 10) );
+	P_I(TERM_L_BLUE, "Shots", "%y/turn",	i2u(p_ptr->state.num_shots), END  );
 	P_I(TERM_L_BLUE, "Infra", "%y ft",	i2u(p_ptr->state.see_infra * 10), END  );
 	P_I(TERM_L_BLUE, "Speed", "%y",		s2u(show_speed()), END );
 	P_I(TERM_L_BLUE, "Burden","%.1y lbs",	f2u(p_ptr->total_weight/10.0), END  );
@@ -918,6 +925,8 @@ void display_player(int mode)
 	/* Erase screen */
 	clear_from(0);
 
+	/* When not playing, do not display in subwindows */
+	if (Term != angband_term[0] && !p_ptr->playing) return;
 
 	/* Stat info */
 	display_player_stat_info();
@@ -956,20 +965,16 @@ errr file_character(const char *path, bool full)
 	int i, x, y;
 
 	byte a;
-	char c;
+	wchar_t c;
 
 	ang_file *fp;
 
-	store_type *st_ptr = &store[STORE_HOME];
+	struct store *st_ptr = &stores[STORE_HOME];
 
 	char o_name[80];
 
-	byte (*old_xchar_hook)(byte c) = Term->xchar_hook;
-
 	char buf[1024];
-
-	/* We use either ascii or system-specific encoding */
- 	int encoding = OPT(xchars_to_file) ? SYSTEM_SPECIFIC : ASCII;
+	char *p;
 
 	/* Unused parameter */
 	(void)full;
@@ -979,12 +984,8 @@ errr file_character(const char *path, bool full)
 	fp = file_open(path, MODE_WRITE, FTYPE_TEXT);
 	if (!fp) return (-1);
 
-	/* Display the requested encoding -- ASCII or system-specific */
- 	if (!OPT(xchars_to_file)) Term->xchar_hook = NULL;
-
 	/* Begin dump */
-	file_putf(fp, "  [%s %s Character Dump]\n\n",
-	        VERSION_NAME, VERSION_STRING);
+	file_putf(fp, "  [%s Character Dump]\n\n", buildid);
 
 
 	/* Display player */
@@ -993,6 +994,7 @@ errr file_character(const char *path, bool full)
 	/* Dump part of the screen */
 	for (y = 1; y < 23; y++)
 	{
+		p = buf;
 		/* Dump each row */
 		for (x = 0; x < 79; x++)
 		{
@@ -1000,17 +1002,17 @@ errr file_character(const char *path, bool full)
 			(void)(Term_what(x, y, &a, &c));
 
 			/* Dump it */
-			buf[x] = c;
+			p += wctomb(p, c);
 		}
 
 		/* Back up over spaces */
-		while ((x > 0) && (buf[x-1] == ' ')) --x;
+		while ((p > buf) && (p[-1] == ' ')) --p;
 
 		/* Terminate */
-		buf[x] = '\0';
+		*p = '\0';
 
 		/* End the row */
-		x_file_putf(fp, encoding, "%s\n", buf);
+		x_file_putf(fp, "%s\n", buf);
 	}
 
 	/* Skip a line */
@@ -1022,6 +1024,7 @@ errr file_character(const char *path, bool full)
 	/* Dump part of the screen */
 	for (y = 11; y < 20; y++)
 	{
+		p = buf;
 		/* Dump each row */
 		for (x = 0; x < 39; x++)
 		{
@@ -1029,17 +1032,17 @@ errr file_character(const char *path, bool full)
 			(void)(Term_what(x, y, &a, &c));
 
 			/* Dump it */
-			buf[x] = c;
+			p += wctomb(p, c);
 		}
 
 		/* Back up over spaces */
-		while ((x > 0) && (buf[x-1] == ' ')) --x;
+		while ((p > buf) && (p[-1] == ' ')) --p;
 
 		/* Terminate */
-		buf[x] = '\0';
+		*p = '\0';
 
 		/* End the row */
-		x_file_putf(fp, encoding, "%s\n", buf);
+		x_file_putf(fp, "%s\n", buf);
 	}
 
 	/* Skip a line */
@@ -1048,6 +1051,7 @@ errr file_character(const char *path, bool full)
 	/* Dump part of the screen */
 	for (y = 11; y < 20; y++)
 	{
+		p = buf;
 		/* Dump each row */
 		for (x = 0; x < 39; x++)
 		{
@@ -1055,17 +1059,17 @@ errr file_character(const char *path, bool full)
 			(void)(Term_what(x + 40, y, &a, &c));
 
 			/* Dump it */
-			buf[x] = c;
+			p += wctomb(p, c);
 		}
 
 		/* Back up over spaces */
-		while ((x > 0) && (buf[x-1] == ' ')) --x;
+		while ((p > buf) && (p[-1] == ' ')) --p;
 
 		/* Terminate */
-		buf[x] = '\0';
+		*p = '\0';
 
 		/* End the row */
-		x_file_putf(fp, encoding, "%s\n", buf);
+		x_file_putf(fp, "%s\n", buf);
 	}
 
 	/* Skip some lines */
@@ -1080,9 +1084,9 @@ errr file_character(const char *path, bool full)
 		file_putf(fp, "  [Last Messages]\n\n");
 		while (i-- > 0)
 		{
-			x_file_putf(fp, encoding, "> %s\n", message_str((s16b)i));
+			x_file_putf(fp, "> %s\n", message_str((s16b)i));
 		}
-		x_file_putf(fp, encoding, "\nKilled by %s.\n\n", p_ptr->died_from);
+		x_file_putf(fp, "\nKilled by %s.\n\n", p_ptr->died_from);
 	}
 
 
@@ -1098,8 +1102,8 @@ errr file_character(const char *path, bool full)
 		object_desc(o_name, sizeof(o_name), &p_ptr->inventory[i],
 				ODESC_PREFIX | ODESC_FULL);
 
-		x_file_putf(fp, encoding, "%c) %s\n", index_to_label(i), o_name);
-		if (p_ptr->inventory[i].k_idx)
+		x_file_putf(fp, "%c) %s\n", index_to_label(i), o_name);
+		if (p_ptr->inventory[i].kind)
 			object_info_chardump(fp, &p_ptr->inventory[i], 5, 72);
 	}
 
@@ -1107,12 +1111,12 @@ errr file_character(const char *path, bool full)
 	file_putf(fp, "\n\n  [Character Inventory]\n\n");
 	for (i = 0; i < INVEN_PACK; i++)
 	{
-		if (!p_ptr->inventory[i].k_idx) break;
+		if (!p_ptr->inventory[i].kind) break;
 
 		object_desc(o_name, sizeof(o_name), &p_ptr->inventory[i],
 					ODESC_PREFIX | ODESC_FULL);
 
-		x_file_putf(fp, encoding, "%c) %s\n", index_to_label(i), o_name);
+		x_file_putf(fp, "%c) %s\n", index_to_label(i), o_name);
 		object_info_chardump(fp, &p_ptr->inventory[i], 5, 72);
 	}
 	file_putf(fp, "\n\n");
@@ -1129,7 +1133,7 @@ errr file_character(const char *path, bool full)
 		{
 			object_desc(o_name, sizeof(o_name), &st_ptr->stock[i],
 						ODESC_PREFIX | ODESC_FULL);
-			x_file_putf(fp, encoding, "%c) %s\n", I2A(i), o_name);
+			x_file_putf(fp, "%c) %s\n", I2A(i), o_name);
 
 			object_info_chardump(fp, &st_ptr->stock[i], 5, 72);
 		}
@@ -1160,9 +1164,6 @@ errr file_character(const char *path, bool full)
 	/* Skip some lines */
 	file_putf(fp, "\n\n");
 
-	/* Return to standard display */
- 	Term->xchar_hook = old_xchar_hook;
-
 	file_close(fp);
 
 
@@ -1192,11 +1193,11 @@ static void string_lower(char *buf)
  * functionality, especially when moving backwards through a file, or
  * forwards through a file by less than a page at a time.  XXX XXX XXX
  */
-bool show_file(cptr name, cptr what, int line, int mode)
+bool show_file(const char *name, const char *what, int line, int mode)
 {
 	int i, k, n;
 
-	char ch;
+	struct keypress ch;
 
 	/* Number of "real" lines passed by */
 	int next = 0;
@@ -1220,7 +1221,7 @@ bool show_file(cptr name, cptr what, int line, int mode)
 	char *find = NULL;
 
 	/* Jump to this tag */
-	cptr tag = NULL;
+	const char *tag = NULL;
 
 	/* Hold a string to find */
 	char finder[80] = "";
@@ -1247,6 +1248,9 @@ bool show_file(cptr name, cptr what, int line, int mode)
 	char hook[26][32];
 
 	int wid, hgt;
+	
+	/* TRUE if we are inside a RST block that should be skipped */
+	bool skip_lines = FALSE;
 
 
 
@@ -1274,7 +1278,6 @@ bool show_file(cptr name, cptr what, int line, int mode)
 
 	/* Redirect the name */
 	name = filename;
-
 
 	/* Hack XXX XXX XXX */
 	if (what)
@@ -1321,27 +1324,33 @@ bool show_file(cptr name, cptr what, int line, int mode)
 		/* Read a line or stop */
 		if (!file_getl(fff, buf, sizeof(buf))) break;
 
-		/* XXX Parse "menu" items */
-		if (prefix(buf, "***** "))
-		{
-			char b1 = '[', b2 = ']';
+		/* Skip lines if we are inside a RST directive*/
+		if(skip_lines){
+			if(contains_only_spaces(buf))
+				skip_lines=FALSE;
+			continue;
+		}
 
-			/* Notice "menu" requests */
-			if ((buf[6] == b1) && isalpha((unsigned char)buf[7]) &&
-			    (buf[8] == b2) && (buf[9] == ' '))
+		/* Parse a very small subset of RST */
+		/* TODO: should be more flexible */
+		if (prefix(buf, ".. "))
+		{
+			/* parse ".. menu:: [x] filename.txt" (with exact spacing)*/
+			if(prefix(buf+strlen(".. "), "menu:: [") && 
+                           buf[strlen(".. menu:: [x")]==']')
 			{
 				/* This is a menu file */
 				menu = TRUE;
 
 				/* Extract the menu item */
-				k = A2I(buf[7]);
+				k = A2I(buf[strlen(".. menu:: [")]);
 
 				/* Store the menu item (if valid) */
 				if ((k >= 0) && (k < 26))
-					my_strcpy(hook[k], buf + 10, sizeof(hook[0]));
+					my_strcpy(hook[k], buf + strlen(".. menu:: [x] "), sizeof(hook[0]));
 			}
-			/* Notice "tag" requests */
-			else if (buf[6] == '<')
+			/* parse ".. _some_hyperlink_target:" */
+			else if (buf[strlen(".. ")] == '_')
 			{
 				if (tag)
 				{
@@ -1349,7 +1358,7 @@ bool show_file(cptr name, cptr what, int line, int mode)
 					buf[strlen(buf) - 1] = '\0';
 
 					/* Compare with the requested tag */
-					if (streq(buf + 7, tag))
+					if (streq(buf + strlen(".. _"), tag))
 					{
 						/* Remember the tagged line */
 						line = next;
@@ -1357,7 +1366,8 @@ bool show_file(cptr name, cptr what, int line, int mode)
 				}
 			}
 
-			/* Skip this */
+			/* Skip this and enter skip mode*/
+			skip_lines = TRUE;
 			continue;
 		}
 
@@ -1367,7 +1377,6 @@ bool show_file(cptr name, cptr what, int line, int mode)
 
 	/* Save the number of "real" lines */
 	size = next;
-
 
 
 	/* Display the file */
@@ -1381,7 +1390,7 @@ bool show_file(cptr name, cptr what, int line, int mode)
 		if (line > (size - (hgt - 4))) line = size - (hgt - 4);
 		if (line < 0) line = 0;
 
-
+		skip_lines = FALSE;
 		/* Re-open the file if needed */
 		if (next > line)
 		{
@@ -1403,8 +1412,19 @@ bool show_file(cptr name, cptr what, int line, int mode)
 			/* Get a line */
 			if (!file_getl(fff, buf, sizeof(buf))) break;
 
-			/* Skip tags/links */
-			if (prefix(buf, "***** ")) continue;
+			/* Skip lines if we are inside a RST directive*/
+			if(skip_lines){
+				if(contains_only_spaces(buf))
+					skip_lines=FALSE;
+				continue;
+			}
+
+			/* Skip RST directives */
+			if (prefix(buf, ".. "))
+			{
+				skip_lines=TRUE;
+				continue;
+			}
 
 			/* Count the lines */
 			next++;
@@ -1420,8 +1440,22 @@ bool show_file(cptr name, cptr what, int line, int mode)
 			/* Get a line of the file or stop */
 			if (!file_getl(fff, buf, sizeof(buf))) break;
 
-			/* Hack -- skip "special" lines */
-			if (prefix(buf, "***** ")) continue;
+			/* Skip lines if we are inside a RST directive*/
+			if(skip_lines){
+				if(contains_only_spaces(buf))
+					skip_lines=FALSE;
+				continue;
+			}
+
+			/* Skip RST directives */
+			if (prefix(buf, ".. "))
+			{
+				skip_lines=TRUE;
+				continue;
+			}
+
+			/* skip | characters */
+			strskip(buf,'|');
 
 			/* Count the "real" lines */
 			next++;
@@ -1444,7 +1478,7 @@ bool show_file(cptr name, cptr what, int line, int mode)
 			/* Highlight "shower" */
 			if (shower[0])
 			{
-				cptr str = lc_buf;
+				const char *str = lc_buf;
 
 				/* Display matches */
 				while ((str = strstr(str, shower)) != NULL)
@@ -1474,7 +1508,7 @@ bool show_file(cptr name, cptr what, int line, int mode)
 
 
 		/* Show a general "title" */
-		prt(format("[%s %s, %s, Line %d-%d/%d]", VERSION_NAME, VERSION_STRING,
+		prt(format("[%s, %s, Line %d-%d/%d]", buildid,
 		           caption, line, line + hgt - 4, size), 0, 0);
 
 
@@ -1503,16 +1537,16 @@ bool show_file(cptr name, cptr what, int line, int mode)
 		ch = inkey();
 
 		/* Exit the help */
-		if (ch == '?') break;
+		if (ch.code == '?') break;
 
 		/* Toggle case sensitive on/off */
-		if (ch == '!')
+		if (ch.code == '!')
 		{
 			case_sensitive = !case_sensitive;
 		}
 
 		/* Try showing */
-		if (ch == '&')
+		if (ch.code == '&')
 		{
 			/* Get "shower" */
 			prt("Show: ", hgt - 1, 0);
@@ -1523,7 +1557,7 @@ bool show_file(cptr name, cptr what, int line, int mode)
 		}
 
 		/* Try finding */
-		if (ch == '/')
+		if (ch.code == '/')
 		{
 			/* Get "finder" */
 			prt("Find: ", hgt - 1, 0);
@@ -1543,7 +1577,7 @@ bool show_file(cptr name, cptr what, int line, int mode)
 		}
 
 		/* Go to a specific line */
-		if (ch == '#')
+		if (ch.code == '#')
 		{
 			char tmp[80] = "0";
 
@@ -1553,7 +1587,7 @@ bool show_file(cptr name, cptr what, int line, int mode)
 		}
 
 		/* Go to a specific file */
-		if (ch == '%')
+		if (ch.code == '%')
 		{
 			char ftmp[80] = "help.hlp";
 
@@ -1561,69 +1595,63 @@ bool show_file(cptr name, cptr what, int line, int mode)
 			if (askfor_aux(ftmp, sizeof(ftmp), NULL))
 			{
 				if (!show_file(ftmp, NULL, 0, mode))
-					ch = ESCAPE;
+					ch.code = ESCAPE;
 			}
 		}
 
-		/* Back up one line */
-		if (ch == ARROW_UP || ch == '8')
-		{
-			line = line - 1;
-		}
+		switch (ch.code) {
+			/* up a line */
+			case ARROW_UP:
+			case '8': line--; break;
 
-		/* Back up one full page */
-		if ((ch == '9') || (ch == '-'))
-		{
-			line = line - (hgt - 4);
-		}
+			/* up a page */
+			case KC_PGUP:
+			case '9':
+			case '-': line -= (hgt - 4); break;
 
-		/* Back to the top */
-		if (ch == '7')
-		{
-			line = 0;
-		}
+			/* home */
+			case KC_HOME:
+			case '7': line = 0; break;
 
-		/* Advance one line */
-		if ((ch == ARROW_DOWN) || (ch == '2') || (ch == '\n') || (ch == '\r'))
-		{
-			line = line + 1;
-		}
+			/* down a line */
+			case ARROW_DOWN:
+			case '2':
+			case '\n':
+			case '\r': line++; break;
 
-		/* Advance one full page */
-		if ((ch == '3') || (ch == ' '))
-		{
-			line = line + (hgt - 4);
-		}
+			/* down a page */
+			case KC_PGDOWN:
+			case '3':
+			case ' ': line += hgt - 4; break;
 
-		/* Advance to the bottom */
-		if (ch == '1')
-		{
-			line = size;
+			/* end */
+			case KC_END:
+			case '1': line = size; break;
 		}
 
 		/* Recurse on letters */
-		if (menu && isalpha((unsigned char)ch))
+		if (menu && isalpha((unsigned char)ch.code))
 		{
 			/* Extract the requested menu item */
-			k = A2I(ch);
+			k = A2I(ch.code);
 
 			/* Verify the menu item */
 			if ((k >= 0) && (k <= 25) && hook[k][0])
 			{
 				/* Recurse on that file */
-				if (!show_file(hook[k], NULL, 0, mode)) ch = ESCAPE;
+				if (!show_file(hook[k], NULL, 0, mode)) ch.code = ESCAPE;
 			}
 		}
 
 		/* Exit on escape */
-		if (ch == ESCAPE) break;
+		if (ch.code == ESCAPE) break;
 	}
 
 	/* Close the file */
 	file_close(fff);
 
 	/* Done */
-	return (ch != '?');
+	return (ch.code != '?');
 }
 
 
@@ -1721,13 +1749,13 @@ void process_player_name(bool sf)
 void save_game(void)
 {
 	/* Disturb the player */
-	disturb(1, 0);
+	disturb(p_ptr, 1, 0);
 
 	/* Clear messages */
 	message_flush();
 
 	/* Handle stuff */
-	handle_stuff();
+	handle_stuff(p_ptr);
 
 	/* Message */
 	prt("Saving game...", 0, 0);
@@ -1770,7 +1798,7 @@ void save_game(void)
 void close_game(void)
 {
 	/* Handle stuff */
-	handle_stuff();
+	handle_stuff(p_ptr);
 
 	/* Flush the messages */
 	message_flush();
@@ -1801,11 +1829,12 @@ void close_game(void)
 
 		if (Term->mapped_flag)
 		{
-			/* Prompt for scores XXX XXX XXX */
-			prt("Press Return (or Escape).", 0, 40);
+			struct keypress ch;
 
-			/* Predict score (or ESCAPE) */
-			if (inkey() != ESCAPE) predict_score();
+			prt("Press Return (or Escape).", 0, 40);
+			ch = inkey();
+			if (ch.code != ESCAPE)
+				predict_score();
 		}
 	}
 
@@ -1818,83 +1847,38 @@ void close_game(void)
 	signals_handle_tstp();
 }
 
-
-/*
- * Handle abrupt death of the visual system
- *
- * This routine is called only in very rare situations, and only
- * by certain visual systems, when they experience fatal errors.
- *
- * XXX XXX Hack -- clear the death flag when creating a HANGUP
- * save file so that player can see tombstone when restart.
- */
-void exit_game_panic(void)
+static void write_html_escape_char(ang_file *fp, wchar_t c)
 {
-	/* If nothing important has happened, just quit */
-	if (!character_generated || character_saved) quit("panic");
+	char mbseq[MB_CUR_MAX];
 
-	/* Mega-Hack -- see "msg("%s", )" */
-	msg_flag = FALSE;
-
-	/* Clear the top line */
-	prt("", 0, 0);
-
-	/* Hack -- turn off some things */
-	disturb(1, 0);
-
-	/* Hack -- Delay death XXX XXX XXX */
-	if (p_ptr->chp < 0) p_ptr->is_dead = FALSE;
-
-	/* Hardcode panic save */
-	p_ptr->panic_save = 1;
-
-	/* Forbid suspend */
-	signals_ignore_tstp();
-
-	/* Indicate panic save */
-	my_strcpy(p_ptr->died_from, "(panic save)", sizeof(p_ptr->died_from));
-
-	/* Panic save, or get worried */
-	if (!savefile_save(savefile))
-		quit("panic save failed!");
-
-
-	/* Successful panic save */
-	quit("panic save succeeded!");
-}
-
-
-
-
-static void write_html_escape_char(ang_file *fp, char c)
-{
 	switch (c)
 	{
-		case '<':
+		case L'<':
 			file_putf(fp, "&lt;");
 			break;
-		case '>':
+		case L'>':
 			file_putf(fp, "&gt;");
 			break;
-		case '&':
+		case L'&':
 			file_putf(fp, "&amp;");
 			break;
 		default:
-			file_putf(fp, "%c", c);
+			wctomb(mbseq, c);
+			file_putf(fp, "%s", mbseq);
 			break;
 	}
 }
 
 
 /* Take an html screenshot */
-void html_screenshot(cptr name, int mode)
+void html_screenshot(const char *name, int mode)
 {
 	int y, x;
 	int wid, hgt;
 
 	byte a = TERM_WHITE;
 	byte oa = TERM_WHITE;
-	char c = ' ';
+	wchar_t c = L' ';
 
 	const char *new_color_fmt = (mode == 0) ?
 					"<font color=\"#%02X%02X%02X\">"
@@ -1924,8 +1908,7 @@ void html_screenshot(cptr name, int mode)
 	if (mode == 0)
 	{
 		file_putf(fp, "<!DOCTYPE html><html><head>\n");
-		file_putf(fp, "  <meta='generator' content='%s %s'>\n",
-	            	VERSION_NAME, VERSION_STRING);
+		file_putf(fp, "  <meta='generator' content='%s'>\n", buildid);
 		file_putf(fp, "  <title>%s</title>\n", name);
 		file_putf(fp, "</head>\n\n");
 		file_putf(fp, "<body style='color: #fff; background: #000;'>\n");
@@ -1945,7 +1928,7 @@ void html_screenshot(cptr name, int mode)
 			(void)(Term_what(x, y, &a, &c));
 
 			/* Color change */
-			if (oa != a && c != ' ')
+			if (oa != a && c != L' ')
 			{
 				/* From the default white to another color */
 				if (oa == TERM_WHITE)
@@ -1977,7 +1960,12 @@ void html_screenshot(cptr name, int mode)
 
 			/* Write the character and escape special HTML characters */
 			if (mode == 0) write_html_escape_char(fp, c);
-			else file_putf(fp, "%c", c);
+			else
+			{
+				char mbseq[MB_LEN_MAX+1] = {0};
+				wctomb(mbseq, c);
+				file_putf(fp, "%s", mbseq);
+			}
 		}
 
 		/* End the row */

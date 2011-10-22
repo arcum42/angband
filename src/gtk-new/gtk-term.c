@@ -24,17 +24,6 @@
 #include "gtk-term.h"
 #include "gtk-drawing.h"
 #include "main-gtk.h"
-#include <iconv.h>
-
-iconv_t conv;
-
-/* this is used to draw the various terrain characters */
-static unsigned int graphics_table[32] = {
-	000, '*', '#', '?', '?', '?', '?', '.',
-	'+', '?', '?', '+', '+', '+', '+', '+',
-	'~', '-', '-', '-', '_', '+', '+', '+',
-	'+', '|', '?', '?', '?', '?', '?', '.',
-};
 
 /*
  * An array of "term_data" structures, one for each "sub-window"
@@ -204,73 +193,29 @@ static errr Term_wipe_gtk(int x, int y, int n)
 	return (0);
 }
 
-
-static byte Term_xchar_gtk(byte c)
-{
-	/* Can't translate Latin-1 to UTF-8 here since we have to return a byte. */
-	return c;
-}
-
-char *process_control_chars(int n, cptr s)
-{
-	char *s2 = (char *)malloc(sizeof(char) * n);
-	int i;
-	for (i = 0; i < n; i++) {
-		unsigned char c = s[i];
-		if (c < 32) {
-			s2[i] = graphics_table[c];
-		} else if (c == 127) {
-			s2[i] = '#';
-		} else {
-			s2[i] = c;
-		}
-	}
-
-	return s2;
-}
-
-char *latin1_to_utf8(int n, cptr s)
-{
-	size_t inbytes = n;
-	char *s2 = process_control_chars(n, s);
-	char *p2 = s2;
-
-	size_t outbytes = 4 * n;
-	char *s3 = (char *)malloc(sizeof(char) * outbytes);
-	char *p3 = s3;
-
-	size_t result = iconv(conv, &p2, &inbytes, &p3, &outbytes);
-
-	if (result == (size_t)(-1)) {
-		printf("iconv() failed: %d\n", errno);
-		free(s3);
-		return s2;
-	} else {
-		free(s2);
-		return s3;
-	}
-}
-
 /*
  * Draw some text on the screen
  */
-static errr Term_text_gtk(int x, int y, int n, byte a, const char *cp)
+static errr Term_text_gtk(int x, int y, int n, byte a, const wchar_t *s)
 {
 	term_data *td = (term_data*)(Term->data);
+	wchar_t src[255];
+	char mbstr[MB_LEN_MAX * 255];
+	size_t len;
+
+	/* Take a copy of the incoming string, but truncate it at n chars */
+	wcsncpy(src, s, n);
+	src[n] = L'\0';
+	/* Convert to UTF-8 for display */
+	len = wcstombs(mbstr, src, n * MB_LEN_MAX);
+	mbstr[len] = '\0';
 	
-	char *s2;
-	
-	if (conv == NULL)
-		s2 = process_control_chars(n, cp);
-	else
-		s2 = latin1_to_utf8(n, cp);
-	
-	write_chars(td, x, y, n, a, s2);
+	write_chars(td, x, y, len, a, mbstr);
+	//write_chars(td, x, y, n, a, s2);
 
 	/* Success */
 	return (0);
 }
-
 
 /*
  * Draw some attr/char pairs on the screen
@@ -278,10 +223,17 @@ static errr Term_text_gtk(int x, int y, int n, byte a, const char *cp)
  * Basically, what we have here is that Angband wants to draw a series of n tiles at x/y. ap[n]/cp[n] gives you which tiles are in the foreground,
  * and tap/tcp are the terrain tiles for the background. Don't ask me why we don't put it all in a struct, and pass an array of that struct.
  */
-static errr Term_pict_gtk(int x, int y, int n, const byte *ap, const char *cp, const byte *tap, const char *tcp)
+static errr Term_pict_gtk(int x, int y, int n, const byte *ap, const wchar_t *cp, const byte *tap, const wchar_t *tcp)
 {
 	term_data *td = (term_data*)(Term->data);
-	draw_tiles(td, x, y, n, ap, cp, tap, tcp);
+	char mbforeground[MB_LEN_MAX * 255];
+	char mbterrain[MB_LEN_MAX * 255];
+	
+	wcstombs(mbforeground, cp, n * MB_LEN_MAX);
+	wcstombs(mbterrain, tcp, n * MB_LEN_MAX);
+	
+	//draw_tiles(td, x, y, n, ap, cp, tap, tcp);
+	draw_tiles(td, x, y, n, ap, mbforeground, tap, mbterrain);
 
 	/* Success */
 	return (0);
@@ -299,13 +251,6 @@ void term_data_link(int i)
 	term_data *td = &term_window[i];
 	term *t = &td->t;
 	td->id = i;
-
-	conv = iconv_open("UTF-8", "ISO-8859-1");
-	if (conv == (iconv_t)(-1)) 
-	{
-		printf("iconv_open() failed: %d\n", errno);
-		conv = NULL;
-	}
 	
 	/* Initialize the term */
 	td->cols = 80;
@@ -332,7 +277,6 @@ void term_data_link(int i)
 	t->wipe_hook = Term_wipe_gtk;
 	t->curs_hook = Term_curs_gtk;
 	t->pict_hook = Term_pict_gtk;
-	if (conv != NULL) t->xchar_hook = Term_xchar_gtk;
 	
 	/* Remember where we came from */
 	t->data = td;

@@ -39,7 +39,7 @@ const int option_page[OPT_PAGE_MAX][OPT_PAGE_PER] =
 		OPT_mouse_movement,
 		OPT_mouse_buttons,
 		OPT_use_sound,
-		OPT_xchars_to_file,
+		OPT_NONE,
 		OPT_NONE,
 	},
 
@@ -67,7 +67,7 @@ const int option_page[OPT_PAGE_MAX][OPT_PAGE_PER] =
 	{
 		OPT_birth_maximize,
 		OPT_birth_randarts,
-		OPT_birth_ai_sound,
+		OPT_birth_keep_randarts,
 		OPT_birth_ai_smell,
 		OPT_birth_ai_packs,
 		OPT_birth_ai_learn,
@@ -85,12 +85,12 @@ const int option_page[OPT_PAGE_MAX][OPT_PAGE_PER] =
 
 	/* Cheat */
 	{
-		OPT_cheat_peek,
 		OPT_cheat_hear,
 		OPT_cheat_room,
 		OPT_cheat_xtra,
 		OPT_cheat_know,
 		OPT_cheat_live,
+		OPT_NONE,
 		OPT_NONE,
 		OPT_NONE,
 		OPT_NONE,
@@ -132,7 +132,7 @@ static const struct option options[OPT_MAX] =
 { "animate_flicker",     "Color: Shimmer multi-colored things",         FALSE }, /* 15 */
 { "center_player",       "Center map continuously",                     FALSE }, /* 16 */
 { "purple_uniques",      "Color: Show unique monsters in purple",       FALSE }, /* 17 */
-{ "xchars_to_file",      "Allow accents in output files",               FALSE }, /* 18 */
+{ NULL,                  NULL,                                          FALSE }, /* 18 */
 { "auto_more",           "Automatically clear '-more-' prompts",        FALSE }, /* 19 */
 { "hp_changes_color",    "Color: Player color indicates % hit points",  FALSE }, /* 20 */
 { "mouse_movement",      "Allow mouse clicks to move the player",       FALSE }, /* 21 */
@@ -144,7 +144,7 @@ static const struct option options[OPT_MAX] =
 { NULL,                  NULL,                                          FALSE }, /* 27 */
 { NULL,                  NULL,                                          FALSE }, /* 28 */
 { NULL,                  NULL,                                          FALSE }, /* 29 */
-{ "cheat_peek",          "Cheat: Peek into object creation",            FALSE }, /* 30 */
+{ NULL,                  NULL,                                          FALSE }, /* 30 */
 { "cheat_hear",          "Cheat: Peek into monster creation",           FALSE }, /* 31 */
 { "cheat_room",          "Cheat: Peek into dungeon creation",           FALSE }, /* 32 */
 { "cheat_xtra",          "Cheat: Peek into something else",             FALSE }, /* 33 */
@@ -154,7 +154,7 @@ static const struct option options[OPT_MAX] =
 { NULL,                  NULL,                                          FALSE }, /* 37 */
 { NULL,                  NULL,                                          FALSE }, /* 38 */
 { NULL,                  NULL,                                          FALSE }, /* 39 */
-{ "score_peek",          "Score: Peek into object creation",            FALSE }, /* 40 */
+{ NULL,                  NULL,                                          FALSE }, /* 40 */
 { "score_hear",          "Score: Peek into monster creation",           FALSE }, /* 41 */
 { "score_room",          "Score: Peek into dungeon creation",           FALSE }, /* 42 */
 { "score_xtra",          "Score: Peek into something else",             FALSE }, /* 43 */
@@ -174,7 +174,7 @@ static const struct option options[OPT_MAX] =
 { "birth_no_stairs",     "Don't generate connected stairs",             FALSE }, /* 57 */
 { "birth_no_feelings",   "Don't show level feelings",                   FALSE }, /* 58 */
 { "birth_no_selling",    "Items always sell for 0 gold",                FALSE }, /* 59 */
-{ "birth_ai_sound",      "Monsters chase current location",             TRUE },  /* 60 */
+{ "birth_keep_randarts", "Use previous set of randarts",                TRUE },  /* 60 */
 { "birth_ai_smell",      "Monsters chase recent locations",             TRUE },  /* 61 */
 { "birth_ai_packs",      "Monsters act smarter in groups",              TRUE },  /* 62 */
 { "birth_ai_learn",      "Monsters learn from their mistakes",          FALSE }, /* 63 */
@@ -200,9 +200,12 @@ const char *option_desc(int opt)
 	return options[opt].description;
 }
 
-bool option_is_birth(int opt) { return opt >= OPT_BIRTH && opt < (OPT_BIRTH + N_OPTS_BIRTH); }
-bool option_is_cheat(int opt) { return opt >= OPT_CHEAT && opt < (OPT_CHEAT + N_OPTS_CHEAT); }
-bool option_is_score(int opt) { return opt >= OPT_SCORE && opt < (OPT_SCORE + N_OPTS_CHEAT); }
+#if 0 /* unused so far but may be useful in future */
+static bool option_is_birth(int opt) { return opt >= OPT_BIRTH && opt < (OPT_BIRTH + N_OPTS_BIRTH); }
+static bool option_is_score(int opt) { return opt >= OPT_SCORE && opt < (OPT_SCORE + N_OPTS_CHEAT); }
+#endif
+
+static bool option_is_cheat(int opt) { return opt >= OPT_CHEAT && opt < (OPT_CHEAT + N_OPTS_CHEAT); }
 
 /* Setup functions */
 bool option_set(const char *name, bool on)
@@ -215,7 +218,7 @@ bool option_set(const char *name, bool on)
 
 		op_ptr->opt[opt] = on;
 		if (on && option_is_cheat(opt)) {
-			op_ptr->opt[opt + (OPT_CHEAT - OPT_SCORE)] = TRUE;
+			op_ptr->opt[opt + (OPT_SCORE - OPT_CHEAT)] = TRUE;
 		}
 
 		return TRUE;

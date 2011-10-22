@@ -23,6 +23,7 @@
 #include "gtk-menus.h"
 #include "main-gtk.h"
 #include "gtk-windows.h"
+#include "grafmode.h"
 
 extern void set_graphics(int g);
 
@@ -113,32 +114,23 @@ GtkWidget* create_window_menu()
 
 GtkWidget* create_graphics_menu()
 {
-	GtkWidget* graf_menu, *graf_item, *graf1_item, *graf2_item, *graf3_item, *graf4_item, *graf5_item;
+	GtkWidget* graf_menu, *graf_item;
 	
 	graf_menu = gtk_menu_new();
 	graf_item = gtk_menu_item_new_with_label("Graphics");
 	
-	graf1_item = gtk_menu_item_new_with_label("No Graphics");
-	gtk_menu_shell_append(GTK_MENU_SHELL(graf_menu), graf1_item);
-	g_signal_connect(GTK_OBJECT(graf1_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_NONE);
+	for (int i = 4; i >0; i--)
+	{
+		GtkWidget* graf_subitem;
 	
-	graf2_item = gtk_menu_item_new_with_label("Original");
-	gtk_menu_shell_append(GTK_MENU_SHELL(graf_menu), graf2_item);
-	g_signal_connect(GTK_OBJECT(graf2_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_ORIGINAL);
-	
-	graf3_item = gtk_menu_item_new_with_label("Adam Bolt");
-	gtk_menu_shell_append(GTK_MENU_SHELL(graf_menu), graf3_item);
-	g_signal_connect(GTK_OBJECT(graf3_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_ADAM_BOLT);
-	
-	graf4_item = gtk_menu_item_new_with_label("David Gervais");
-	gtk_menu_shell_append(GTK_MENU_SHELL(graf_menu), graf4_item);
-	g_signal_connect(GTK_OBJECT(graf4_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_DAVID_GERVAIS);
-	
-	graf5_item = gtk_menu_item_new_with_label("Nomad");
-	gtk_menu_shell_append(GTK_MENU_SHELL(graf_menu), graf5_item);
-	g_signal_connect(GTK_OBJECT(graf5_item), "activate", G_CALLBACK(change_graphics), (gpointer)GRAPHICS_NOMAD);
+		//printf("Creating menu %d: %s\n",i, graphics_modes[i].menuname);
+		graf_subitem = gtk_menu_item_new_with_label(graphics_modes[i].menuname);
+		gtk_menu_shell_append(GTK_MENU_SHELL(graf_menu), graf_subitem);
+		g_signal_connect(GTK_OBJECT(graf_subitem), "activate", G_CALLBACK(change_graphics), (gpointer)graphics_modes[i].grafID);
+	}
 	
 	gtk_menu_item_set_submenu( GTK_MENU_ITEM(graf_item), graf_menu);
+	
 	return graf_item;
 }
 

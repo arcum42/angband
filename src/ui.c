@@ -28,7 +28,7 @@ region region_calculate(region loc)
 	if (loc.col < 0)
 		loc.col += w;
 	if (loc.row < 0)
-		loc.row += w;
+		loc.row += h;
 	if (loc.width <= 0)
 		loc.width += w - loc.col;
 	if (loc.page_rows <= 0)
@@ -60,12 +60,12 @@ void region_erase(const region *loc)
 		Term_erase(calc.col, calc.row + i, calc.width);
 }
 
-bool region_inside(const region *loc, const ui_event_data *key)
+bool region_inside(const region *loc, const ui_event *key)
 {
-	if ((loc->col > key->mousex) || (loc->col + loc->width <= key->mousex))
+	if ((loc->col > key->mouse.x) || (loc->col + loc->width <= key->mouse.x))
 		return FALSE;
 
-	if ((loc->row > key->mousey) || (loc->row + loc->page_rows <= key->mousey))
+	if ((loc->row > key->mouse.y) || (loc->row + loc->page_rows <= key->mouse.y))
 		return FALSE;
 
 	return TRUE;
@@ -74,7 +74,7 @@ bool region_inside(const region *loc, const ui_event_data *key)
 
 /*** Text display ***/
 
-static void display_area(const char *text, const byte *attrs,
+static void display_area(const wchar_t *text, const byte *attrs,
 		size_t *line_starts, size_t *line_lengths,
 		size_t n_lines,
 		region area, size_t line_from)
@@ -95,9 +95,6 @@ static void display_area(const char *text, const byte *attrs,
 
 void textui_textblock_place(textblock *tb, region orig_area, const char *header)
 {
-	const char *text = textblock_text(tb);
-	const byte *attrs = textblock_attrs(tb);
-
 	/* xxx on resize this should be recalculated */
 	region area = region_calculate(orig_area);
 
@@ -115,7 +112,8 @@ void textui_textblock_place(textblock *tb, region orig_area, const char *header)
 	c_prt(TERM_L_BLUE, header, area.row, area.col);
 	area.row++;
 
-	display_area(text, attrs, line_starts, line_lengths, n_lines, area, 0);
+	display_area(textblock_text(tb), textblock_attrs(tb), line_starts,
+	             line_lengths, n_lines, area, 0);
 
 	mem_free(line_starts);
 	mem_free(line_lengths);
@@ -123,9 +121,6 @@ void textui_textblock_place(textblock *tb, region orig_area, const char *header)
 
 void textui_textblock_show(textblock *tb, region orig_area, const char *header)
 {
-	const char *text = textblock_text(tb);
-	const byte *attrs = textblock_attrs(tb);
-
 	/* xxx on resize this should be recalculated */
 	region area = region_calculate(orig_area);
 
@@ -152,19 +147,19 @@ void textui_textblock_show(textblock *tb, region orig_area, const char *header)
 
 		/* Pager mode */
 		while (1) {
-			char ch;
+			struct keypress ch;
 
-			display_area(text, attrs, line_starts, line_lengths, n_lines,
-					area, start_line);
+			display_area(textblock_text(tb), textblock_attrs(tb), line_starts,
+					line_lengths, n_lines, area, start_line);
 
 			ch = inkey();
-			if (ch == ARROW_UP)
+			if (ch.code == ARROW_UP)
 				start_line--;
-			else if (ch == ESCAPE || ch == 'q')
+			else if (ch.code== ESCAPE || ch.code == 'q')
 				break;
-			else if (ch == ARROW_DOWN)
+			else if (ch.code == ARROW_DOWN)
 				start_line++;
-			else if (ch == ' ')
+			else if (ch.code == ' ')
 				start_line += area.page_rows;
 
 			if (start_line < 0)
@@ -173,7 +168,8 @@ void textui_textblock_show(textblock *tb, region orig_area, const char *header)
 				start_line = n_lines - area.page_rows;
 		}
 	} else {
-		display_area(text, attrs, line_starts, line_lengths, n_lines, area, 0);
+		display_area(textblock_text(tb), textblock_attrs(tb), line_starts,
+				line_lengths, n_lines, area, 0);
 
 		c_prt(TERM_WHITE, "", area.row + n_lines, area.col);
 		c_prt(TERM_L_BLUE, "(Press any key to continue.)",

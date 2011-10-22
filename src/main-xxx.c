@@ -442,16 +442,6 @@ static errr Term_wipe_xxx(int x, int y, int n)
 	return (0);
 }
 
-/*
- * Given a position in the ISO Latin-1 character set, return
- * the correct character on this system.
- */
- static byte Term_xchar_xxx(byte c)
-{
- 	/* The xxx port uses the Latin-1 standard */
- 	return (c);
-}
-
 
 /*
  * Draw some text on the screen
@@ -606,7 +596,6 @@ static void term_data_link(int i)
 	t->wipe_hook = Term_wipe_xxx;
 	t->text_hook = Term_text_xxx;
 	t->pict_hook = Term_pict_xxx;
-	t->xchar_hook = Term_xchar_xxx;
 
 	/* Remember where we came from */
 	t->data = td;
@@ -720,13 +709,8 @@ static void init_stuff(void)
 	/* Prepare the filepaths */
 	init_file_paths(path, path, path);
 
-
-#ifdef USE_SOUND
-
 	/* Set up sound hook */
 	sound_hook = xxx_sound;
-
-#endif /* USE_SOUND */
 }
 
 

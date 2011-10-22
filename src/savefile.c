@@ -69,7 +69,7 @@
 
 /** Magic bits at beginning of savefile */
 static const byte savefile_magic[4] = { 83, 97, 118, 101 };
-static const byte savefile_name[4] = SAVEFILE_NAME;
+static const byte savefile_name[4] = "VNLA";
 
 /** Savefile saving functions */
 static const struct {
@@ -86,15 +86,15 @@ static const struct {
 	{ "artifacts", wr_artifacts, 2 },
 	{ "player", wr_player, 2 },
 	{ "squelch", wr_squelch, 1 },
-	{ "misc", wr_misc, 1 },
+	{ "misc", wr_misc, 2 },
 	{ "player hp", wr_player_hp, 1 },
 	{ "player spells", wr_player_spells, 1 },
-	{ "randarts", wr_randarts, 2 },
-	{ "inventory", wr_inventory, 2 },
-	{ "stores", wr_stores, 2 },
+	{ "randarts", wr_randarts, 3 },
+	{ "inventory", wr_inventory, 4 },
+	{ "stores", wr_stores, 4 },
 	{ "dungeon", wr_dungeon, 1 },
-	{ "objects", wr_objects, 2 },
-	{ "monsters", wr_monsters, 1 },
+	{ "objects", wr_objects, 4 },
+	{ "monsters", wr_monsters, 6 },
 	{ "ghost", wr_ghost, 1 },
 	{ "history", wr_history, 1 },
 };
@@ -117,18 +117,31 @@ static const struct {
 	{ "player", rd_player, 2 },
 	{ "squelch", rd_squelch, 1 },
 	{ "misc", rd_misc, 1 },
+	{ "misc", rd_misc_2, 2},
 	{ "player hp", rd_player_hp, 1 },
 	{ "player spells", rd_player_spells, 1 },
 	{ "randarts", rd_randarts_1, 1 },
 	{ "randarts", rd_randarts_2, 2 },
+	{ "randarts", rd_randarts_3, 3 },
 	{ "inventory", rd_inventory_1, 1 },
 	{ "inventory", rd_inventory_2, 2 },
+	{ "inventory", rd_inventory_3, 3 },
+	{ "inventory", rd_inventory_4, 4 },	
 	{ "stores", rd_stores_1, 1 },
 	{ "stores", rd_stores_2, 2 },
+	{ "stores", rd_stores_3, 3 },
+	{ "stores", rd_stores_4, 4 },	
 	{ "dungeon", rd_dungeon, 1 },
 	{ "objects", rd_objects_1, 1 },
 	{ "objects", rd_objects_2, 2 },
-	{ "monsters", rd_monsters, 1 },
+	{ "objects", rd_objects_3, 3 },
+	{ "objects", rd_objects_4, 4 },
+	{ "monsters", rd_monsters_1, 1 },
+	{ "monsters", rd_monsters_2, 2 },
+	{ "monsters", rd_monsters_3, 3 },
+	{ "monsters", rd_monsters_4, 4 },
+	{ "monsters", rd_monsters_5, 5 },
+	{ "monsters", rd_monsters_6, 6 },
 	{ "ghost", rd_ghost, 1 },
 	{ "history", rd_history, 1 },
 };
@@ -154,12 +167,13 @@ static u32b buffer_check;
  *
  * Avoid the top two lines, to avoid interference with "note()".
  */
-void note(cptr msg)
+void note(const char *message)
 {
 	static int y = 2;
 
 	/* Draw the message */
-	prt(msg, y, 0);
+	prt(message, y, 0);
+	pause_line(Term);
 
 	/* Advance one line (wrap if needed) */
 	if (++y >= 24) y = 2;
@@ -233,7 +247,7 @@ void wr_s32b(s32b v)
 	wr_u32b((u32b)v);
 }
 
-void wr_string(cptr str)
+void wr_string(const char *str)
 {
 	while (*str)
 	{
@@ -358,22 +372,29 @@ static bool try_save(ang_file *file)
 bool savefile_save(const char *path)
 {
 	ang_file *file;
-
+	int count = 0;
 	char new_savefile[1024];
 	char old_savefile[1024];
 
 	/* New savefile */
-	strnfmt(new_savefile, sizeof(new_savefile), "%s.new", path);
-	strnfmt(old_savefile, sizeof(old_savefile), "%s.old", path);
+	strnfmt(old_savefile, sizeof(old_savefile), "%s%u.old", path,Rand_simple(1000000));
+	while (file_exists(old_savefile) && (count++ < 100)) {
+		strnfmt(old_savefile, sizeof(old_savefile), "%s%u%u.old", path,Rand_simple(1000000),count);
+	}
+	count = 0;
 
 	/* Make sure that the savefile doesn't already exist */
-	safe_setuid_grab();
+	/*safe_setuid_grab();
 	file_delete(new_savefile);
 	file_delete(old_savefile);
-	safe_setuid_drop();
+	safe_setuid_drop();*/
 
 	/* Open the savefile */
 	safe_setuid_grab();
+	strnfmt(new_savefile, sizeof(new_savefile), "%s%u.new", path,Rand_simple(1000000));
+	while (file_exists(new_savefile) && (count++ < 100)) {
+		strnfmt(new_savefile, sizeof(new_savefile), "%s%u%u.new", path,Rand_simple(1000000),count);
+	}
 	file = file_open(new_savefile, MODE_WRITE, FTYPE_SAVE);
 	safe_setuid_drop();
 
@@ -404,18 +425,22 @@ bool savefile_save(const char *path)
 				file_move(old_savefile, savefile);
 			else
 				file_delete(old_savefile);
-		}
+		} 
 
 		safe_setuid_drop();
 
 		return err ? FALSE : TRUE;
 	}
 
-	/* Delete temp file */
-	safe_setuid_grab();
-	file_delete(new_savefile);
-	safe_setuid_drop();
-
+	/* Delete temp file if the save failed */
+	if (file)
+	{
+		/* file is no longer valid, but it still points to a non zero
+		 * value if the file was created above */
+		safe_setuid_grab();
+		file_delete(new_savefile);
+		safe_setuid_drop();
+	}
 	return FALSE;
 }
 
@@ -426,7 +451,7 @@ bool savefile_save(const char *path)
 static bool try_load(ang_file *f)
 {
 	byte savefile_head[SAVEFILE_HEAD_SIZE];
-	u32b block_version, block_size, block_checksum;
+	u32b block_version, block_size;
 	char *block_name;
 
 	while (TRUE)
@@ -453,7 +478,6 @@ static bool try_load(ang_file *f)
 		block_name = (char *) savefile_head;
 		block_version = RECONSTRUCT_U32B(16);
 		block_size = RECONSTRUCT_U32B(20);
-		block_checksum = RECONSTRUCT_U32B(24);
 
 		/* pad to 4 bytes */
 		if (block_size % 4)
@@ -518,7 +542,7 @@ bool savefile_load(const char *path)
 	if (f) {
 		if (file_read(f, (char *) &head, 8) == 8 &&
 				memcmp(&head[0], savefile_magic, 4) == 0 &&
-				memcmp(&head[4], SAVEFILE_NAME, 4) == 0) {
+				memcmp(&head[4], savefile_name, 4) == 0) {
 			if (!try_load(f)) {
 				ok = FALSE;
 				note("Failed loading savefile.");

@@ -19,7 +19,9 @@
 
 #include "angband.h"
 #include "cave.h"
+#include "cmds.h"
 #include "history.h"
+#include "monster/mon-lore.h"
 #include "monster/monster.h"
 #include "object/tvalsval.h"
 #include "squelch.h"
@@ -30,6 +32,41 @@
 /* Flag value for missing array entry */
 #define MISSING -17
 
+static const grouper object_text_order[] =
+{
+	{TV_RING,			"Ring"			},
+	{TV_AMULET,			"Amulet"		},
+	{TV_POTION,			"Potion"		},
+	{TV_SCROLL,			"Scroll"		},
+	{TV_WAND,			"Wand"			},
+	{TV_STAFF,			"Staff"			},
+	{TV_ROD,			"Rod"			},
+	{TV_FOOD,			"Food"			},
+	{TV_PRAYER_BOOK,	"Priest Book"	},
+	{TV_MAGIC_BOOK,		"Magic Book"	},
+	{TV_LIGHT,			"Light"			},
+	{TV_FLASK,			"Flask"			},
+	{TV_SWORD,			"Sword"			},
+	{TV_POLEARM,		"Polearm"		},
+	{TV_HAFTED,			"Hafted Weapon" },
+	{TV_BOW,			"Bow"			},
+	{TV_ARROW,			"Ammunition"	},
+	{TV_BOLT,			NULL			},
+	{TV_SHOT,			NULL			},
+	{TV_SHIELD,			"Shield"		},
+	{TV_CROWN,			"Crown"			},
+	{TV_HELM,			"Helm"			},
+	{TV_GLOVES,			"Gloves"		},
+	{TV_BOOTS,			"Boots"			},
+	{TV_CLOAK,			"Cloak"			},
+	{TV_DRAG_ARMOR,		"Dragon Scale Mail" },
+	{TV_HARD_ARMOR,		"Hard Armor"	},
+	{TV_SOFT_ARMOR,		"Soft Armor"	},
+	{TV_SPIKE,			"Spike"			},
+	{TV_DIGGING,		"Digger"		},
+	{TV_JUNK,			"Junk"			},
+	{0,					NULL			}
+};
 
 typedef struct
 {
@@ -57,11 +94,11 @@ typedef struct
 
 	/* Required only for objects with modifiable display attributes */
 	/* Unknown 'flavors' return flavor attributes */
-	char *(*xchar)(int oid);     /* Get character attr for OID (by address) */
+	wchar_t *(*xchar)(int oid);     /* Get character attr for OID (by address) */
 	byte *(*xattr)(int oid);     /* Get color attr for OID (by address) */
 
 	const char *(*xtra_prompt)(int oid);  /* Returns optional extra prompt */
-	void (*xtra_act)(char ch, int oid);   /* Handles optional extra actions */
+	void (*xtra_act)(struct keypress ch, int oid);   /* Handles optional extra actions */
 
 	bool is_visual;                       /* Does this kind have visual editing? */
 
@@ -97,56 +134,56 @@ static int *obj_group_order = NULL;
  */
 static struct
 {
-	cptr chars;
-	cptr name;
+	const wchar_t *chars;
+	const char *name;
 } monster_group[] =
 {
-	{ (cptr)-1,   "Uniques" },
-	{ "A",        "Angels" },
-	{ "a",        "Ants" },
-	{ "b",        "Bats" },
-	{ "B",        "Birds" },
-	{ "C",        "Canines" },
-	{ "c",        "Centipedes" },
-	{ "uU",       "Demons" },
-	{ "dD",       "Dragons" },
-	{ "vE",       "Elementals/Vortices" },
-	{ "e",        "Eyes/Beholders" },
-	{ "f",        "Felines" },
-	{ "G",        "Ghosts" },
-	{ "OP",       "Giants/Ogres" },
-	{ "g",        "Golems" },
-	{ "H",        "Harpies/Hybrids" },
-	{ "h",        "Hominids (Elves, Dwarves)" },
-	{ "M",        "Hydras" },
-	{ "i",        "Icky Things" },
-	{ "lFI",      "Insects" },
-	{ "j",        "Jellies" },
-	{ "K",        "Killer Beetles" },
-	{ "k",        "Kobolds" },
-	{ "L",        "Lichs" },
-	{ "tp",		  "Men" },
-	{ ".$!?=~_",  "Mimics" },
-	{ "m",        "Molds" },
-	{ ",",        "Mushroom Patches" },
-	{ "n",        "Nagas" },
-	{ "o",        "Orcs" },
-	{ "q",        "Quadrupeds" },
-	{ "Q",        "Quylthulgs" },
-	{ "R",        "Reptiles/Amphibians" },
-	{ "r",        "Rodents" },
-	{ "S",        "Scorpions/Spiders" },
-	{ "s",        "Skeletons/Drujs" },
-	{ "J",        "Snakes" },
-	{ "T",        "Trolls" },
-	{ "V",        "Vampires" },
-	{ "W",        "Wights/Wraiths" },
-	{ "w",        "Worms/Worm Masses" },
-	{ "X",        "Xorns/Xarens" },
-	{ "y",        "Yeeks" },
-	{ "Y",        "Yeti" },
-	{ "Z",        "Zephyr Hounds" },
-	{ "z",        "Zombies" },
+	{ (const wchar_t *)-1,   "Uniques" },
+	{ L"A",        "Ainur" },
+	{ L"a",        "Ants" },
+	{ L"b",        "Bats" },
+	{ L"B",        "Birds" },
+	{ L"C",        "Canines" },
+	{ L"c",        "Centipedes" },
+	{ L"uU",       "Demons" },
+	{ L"dD",       "Dragons" },
+	{ L"vE",       "Elementals/Vortices" },
+	{ L"e",        "Eyes/Beholders" },
+	{ L"f",        "Felines" },
+	{ L"G",        "Ghosts" },
+	{ L"OP",       "Giants/Ogres" },
+	{ L"g",        "Golems" },
+	{ L"H",        "Harpies/Hybrids" },
+	{ L"h",        "Hominids (Elves, Dwarves)" },
+	{ L"M",        "Hydras" },
+	{ L"i",        "Icky Things" },
+	{ L"lFI",      "Insects" },
+	{ L"j",        "Jellies" },
+	{ L"K",        "Killer Beetles" },
+	{ L"k",        "Kobolds" },
+	{ L"L",        "Lichs" },
+	{ L"tp",       "Men" },
+	{ L".$!?=~_",  "Mimics" },
+	{ L"m",        "Molds" },
+	{ L",",        "Mushroom Patches" },
+	{ L"n",        "Nagas" },
+	{ L"o",        "Orcs" },
+	{ L"q",        "Quadrupeds" },
+	{ L"Q",        "Quylthulgs" },
+	{ L"R",        "Reptiles/Amphibians" },
+	{ L"r",        "Rodents" },
+	{ L"S",        "Scorpions/Spiders" },
+	{ L"s",        "Skeletons/Drujs" },
+	{ L"J",        "Snakes" },
+	{ L"T",        "Trolls" },
+	{ L"V",        "Vampires" },
+	{ L"W",        "Wights/Wraiths" },
+	{ L"w",        "Worms/Worm Masses" },
+	{ L"X",        "Xorns/Xarens" },
+	{ L"y",        "Yeeks" },
+	{ L"Y",        "Yeti" },
+	{ L"Z",        "Zephyr Hounds" },
+	{ L"z",        "Zombies" },
 	{ NULL,       NULL }
 };
 
@@ -173,7 +210,7 @@ const char *feature_group_text[] =
 static void display_visual_list(int col, int row, int height, int width,
 				byte attr_top, byte char_left);
 
-static bool visual_mode_command(ui_event_data ke, bool *visual_list_ptr,
+static bool visual_mode_command(ui_event ke, bool *visual_list_ptr,
 				int height, int width,
 				byte *attr_top_ptr, byte *char_left_ptr,
 				byte *cur_attr_ptr, byte *cur_char_ptr,
@@ -197,13 +234,13 @@ static int feat_order(int feat)
 
 	switch (f_ptr->d_char)
 	{
-		case '.': 				return 0;
-		case '^': 				return 1;
-		case '\'': case '+': 	return 2;
-		case '<': case '>':		return 3;
-		case '#':				return 4;
-		case '*': case '%' :	return 5;
-		case ';': case ':' :	return 6;
+		case L'.': 				return 0;
+		case L'^': 				return 1;
+		case L'\'': case L'+': 	return 2;
+		case L'<': case L'>':		return 3;
+		case L'#':				return 4;
+		case L'*': case L'%' :	return 5;
+		case L';': case L':' :	return 6;
 
 		default:
 		{
@@ -214,14 +251,14 @@ static int feat_order(int feat)
 
 
 /* Emit a 'graphical' symbol and a padding character if appropriate */
-extern void big_pad(int col, int row, byte a, byte c)
+extern int big_pad(int col, int row, byte a, wchar_t c)
 {
 	Term_putch(col, row, a, c);
 
 	if ((tile_width > 1) || (tile_height > 1))
-	{
 	        Term_big_putch(col, row, a, c);
-	}
+
+	return tile_width;
 }
 
 /* Return the actual width of a symbol */
@@ -271,7 +308,7 @@ static void display_group_member(menu_type *menu, int oid,
 		byte c = *o_funcs->xchar(oid);
 		byte a = *o_funcs->xattr(oid);
 
-		c_put_str(attr, format((c & 0x80) ? "%02x/%02x" : "%02x/%d", a, c), row, 60);
+		c_put_str(attr, format("%d/%d", a, c), row, 60);
 	}
 }
 
@@ -342,7 +379,7 @@ static void display_knowledge(const char *title, int *obj_list, int o_count,
 	int prev_g = -1;
 
 	int omode = OPT(rogue_like_commands);
-	ui_event_data ke;
+	ui_event ke;
 
 	/* Get size */
 	Term_get_size(&wid, &hgt);
@@ -497,10 +534,10 @@ static void display_knowledge(const char *title, int *obj_list, int o_count,
 			                object_region.col);
 		}
 
-		menu_refresh(inactive_menu);
-		menu_refresh(active_menu);
+		menu_refresh(inactive_menu, FALSE);
+		menu_refresh(active_menu, FALSE);
 
-		handle_stuff();
+		handle_stuff(p_ptr);
 
 		if (visual_list)
 		{
@@ -525,7 +562,7 @@ static void display_knowledge(const char *title, int *obj_list, int o_count,
 		ke = inkey_ex();
 		if (!visual_list)
 		{
-			ui_event_data ke0 = EVENT_EMPTY;
+			ui_event ke0 = EVENT_EMPTY;
 
 			if (ke.type == EVT_MOUSE)
 				menu_handle_mouse(active_menu, &ke, &ke0);
@@ -550,7 +587,7 @@ static void display_knowledge(const char *title, int *obj_list, int o_count,
 		{
 			case EVT_KBRD:
 			{
-				if (ke.key == 'r' || ke.key == 'R')
+				if (ke.key.code == 'r' || ke.key.code == 'R')
 					recall = TRUE;
 				else if (o_funcs.xtra_act)
 					o_funcs.xtra_act(ke.key, oid);
@@ -703,7 +740,7 @@ static void remove_visual_list(int col, int row, bool *visual_list_ptr, int widt
 /*
  *  Do visual mode command -- Change symbols
  */
-static bool visual_mode_command(ui_event_data ke, bool *visual_list_ptr,
+static bool visual_mode_command(ui_event ke, bool *visual_list_ptr,
 				int height, int width,
 				byte *attr_top_ptr, byte *char_left_ptr,
 				byte *cur_attr_ptr, byte *cur_char_ptr,
@@ -720,7 +757,67 @@ static bool visual_mode_command(ui_event_data ke, bool *visual_list_ptr,
 	int frame_top = logical_height(4);
 	int frame_bottom = logical_height(4);
 
-	switch (ke.key)
+
+	/* Get mouse movement */
+	if (ke.type == EVT_MOUSE)
+	{
+		int eff_width = actual_width(width);
+		int eff_height = actual_height(height);
+		byte a = *cur_attr_ptr;
+		byte c = *cur_char_ptr;
+
+		int my = logical_height(ke.mouse.y - row);
+		int mx = logical_width(ke.mouse.x - col);
+
+		if ((my >= 0) && (my < eff_height) && (mx >= 0) && (mx < eff_width)
+			&& ((ke.mouse.button) || (a != *attr_top_ptr + my)
+				|| (c != *char_left_ptr + mx)))
+		{
+			/* Set the visual */
+			*cur_attr_ptr = a = *attr_top_ptr + my;
+			*cur_char_ptr = c = *char_left_ptr + mx;
+
+			/* Move the frame */
+			if (*char_left_ptr > MAX(0, (int)c - frame_left))
+				(*char_left_ptr)--;
+			if (*char_left_ptr + eff_width <= MIN(255, (int)c + frame_right))
+				(*char_left_ptr)++;
+			if (*attr_top_ptr > MAX(0, (int)a - frame_top))
+				(*attr_top_ptr)--;
+			if (*attr_top_ptr + eff_height <= MIN(255, (int)a + frame_bottom))
+				(*attr_top_ptr)++;
+
+			/* Delay */
+			*delay = 100;
+
+			/* Accept change */
+			if (ke.mouse.button)
+			  remove_visual_list(col, row, visual_list_ptr, width, height);
+
+			return TRUE;
+		}
+
+		/* Cancel change */
+		else if (ke.mouse.button)
+		{
+			*cur_attr_ptr = attr_old;
+			*cur_char_ptr = char_old;
+			remove_visual_list(col, row, visual_list_ptr, width, height);
+
+			return TRUE;
+		}
+
+		else
+		{
+			return FALSE;
+		}
+	}
+
+	if (ke.type != EVT_KBRD)
+		return FALSE;
+
+
+	switch (ke.key.code)
 	{
 		case ESCAPE:
 		{
@@ -807,102 +904,50 @@ static bool visual_mode_command(ui_event_data ke, bool *visual_list_ptr,
 
 		default:
 		{
-			if (*visual_list_ptr)
-			{
-				int eff_width = actual_width(width);
-				int eff_height = actual_height(height);
-				int d = target_dir(ke.key);
-				byte a = *cur_attr_ptr;
-				byte c = *cur_char_ptr;
+			int d = target_dir(ke.key);
+			byte a = *cur_attr_ptr;
+			byte c = *cur_char_ptr;
 
-				bigcurs = TRUE;
+			if (!*visual_list_ptr)
+				break;
 
-				/* Get mouse movement */
-				if (ke.type == EVT_MOUSE)
-				{
-					int my = ke.mousey - row;
-					int mx = ke.mousex - col;
+			bigcurs = TRUE;
 
-					my = logical_height(my);
-					mx = logical_width(mx);
+			/* Restrict direction */
+			if ((a == 0) && (ddy[d] < 0)) d = 0;
+			if ((c == 0) && (ddx[d] < 0)) d = 0;
+			if ((a == 255) && (ddy[d] > 0)) d = 0;
+			if ((c == 255) && (ddx[d] > 0)) d = 0;
 
-					if ((my >= 0) && (my < eff_height) && (mx >= 0) && (mx < eff_width)
-						&& ((ke.index) || (a != *attr_top_ptr + my)
-							|| (c != *char_left_ptr + mx)))
-					{
-						/* Set the visual */
-						*cur_attr_ptr = a = *attr_top_ptr + my;
-						*cur_char_ptr = c = *char_left_ptr + mx;
+			a += ddy[d];
+			c += ddx[d];
 
-						/* Move the frame */
-						if (*char_left_ptr > MAX(0, (int)c - frame_left))
-							(*char_left_ptr)--;
-						if (*char_left_ptr + eff_width <= MIN(255, (int)c + frame_right))
-							(*char_left_ptr)++;
-						if (*attr_top_ptr > MAX(0, (int)a - frame_top))
-							(*attr_top_ptr)--;
-						if (*attr_top_ptr + eff_height <= MIN(255, (int)a + frame_bottom))
-							(*attr_top_ptr)++;
+			/* Set the visual */
+			*cur_attr_ptr = a;
+			*cur_char_ptr = c;
 
-						/* Delay */
-						*delay = 100;
+			/* Move the frame */
+			if (ddx[d] < 0 &&
+					*char_left_ptr > MAX(0, (int)c - frame_left))
+				(*char_left_ptr)--;
+			if ((ddx[d] > 0) &&
+					*char_left_ptr + (width / tile_width) <=
+							MIN(255, (int)c + frame_right))
+			(*char_left_ptr)++;
 
-						/* Accept change */
-						if (ke.index) 
-						  remove_visual_list(col, row, visual_list_ptr, width, height);
+			if (ddy[d] < 0 &&
+					*attr_top_ptr > MAX(0, (int)a - frame_top))
+				(*attr_top_ptr)--;
+			if (ddy[d] > 0 &&
+					*attr_top_ptr + (height / tile_height) <=
+							MIN(255, (int)a + frame_bottom))
+				(*attr_top_ptr)++;
 
-						return TRUE;
-					}
-
-					/* Cancel change */
-					else if (ke.index)
-					{
-						*cur_attr_ptr = attr_old;
-						*cur_char_ptr = char_old;
-						remove_visual_list(col, row, visual_list_ptr, width, height);
-
-						return TRUE;
-					}
-				}
-				else
-				{
-					/* Restrict direction */
-					if ((a == 0) && (ddy[d] < 0)) d = 0;
-					if ((c == 0) && (ddx[d] < 0)) d = 0;
-					if ((a == 255) && (ddy[d] > 0)) d = 0;
-					if ((c == 255) && (ddx[d] > 0)) d = 0;
-
-					a += ddy[d];
-					c += ddx[d];
-
-					/* Set the visual */
-					*cur_attr_ptr = a;
-					*cur_char_ptr = c;
-
-					/* Move the frame */
-					if (ddx[d] < 0 &&
-							*char_left_ptr > MAX(0, (int)c - frame_left))
-						(*char_left_ptr)--;
-					if ((ddx[d] > 0) &&
-							*char_left_ptr + (width / tile_width) <=
-									MIN(255, (int)c + frame_right))
-					(*char_left_ptr)++;
-
-					if (ddy[d] < 0 &&
-							*attr_top_ptr > MAX(0, (int)a - frame_top))
-						(*attr_top_ptr)--;
-					if (ddy[d] > 0 &&
-							*attr_top_ptr + (height / tile_height) <=
-									MIN(255, (int)a + frame_bottom))
-						(*attr_top_ptr)++;
-
-					/* We need to always eat the input even if it is clipped,
-					 * otherwise it will be interpreted as a change object
-					 * selection command with messy results.
-					 */
-					return TRUE;
-				}
-			}
+			/* We need to always eat the input even if it is clipped,
+			 * otherwise it will be interpreted as a change object
+			 * selection command with messy results.
+			 */
+			return TRUE;
 		}
 	}
 
@@ -933,17 +978,21 @@ static void display_monster(int col, int row, bool cursor, int oid)
 	/* Choose colors */
 	byte attr = curs_attrs[CURS_KNOWN][(int)cursor];
 	byte a = r_ptr->x_attr;
-	byte c = r_ptr->x_char;
+	wchar_t c = r_ptr->x_char;
 
+	if ((tile_height != 1) && (a & 0x80)) {
+		a = r_ptr->d_attr;
+		c = r_ptr->d_char;
+		/* If uniques are purple, make it so */
+		if (OPT(purple_uniques) && rf_has(r_ptr->flags, RF_UNIQUE))
+			a = TERM_VIOLET;
+	}
 	/* If uniques are purple, make it so */
-	if (OPT(purple_uniques) && rf_has(r_ptr->flags, RF_UNIQUE))
-		a = TERM_L_VIOLET;
+	else if (OPT(purple_uniques) && !(a & 0x80) && rf_has(r_ptr->flags, RF_UNIQUE))
+		a = TERM_VIOLET;
 
 	/* Display the name */
 	c_prt(attr, r_ptr->name, row, col);
-
-	if ((tile_width > 1) || (tile_height > 1))
-		return;
 
 	/* Display symbol */
 	big_pad(66, row, a, c);
@@ -972,8 +1021,8 @@ static int m_cmp_race(const void *a, const void *b)
 	{
 		/* UNIQUE group is ordered by level & name only */
 		/* Others by order they appear in the group symbols */
-		return strchr(monster_group[gid].chars, r_a->d_char)
-			- strchr(monster_group[gid].chars, r_b->d_char);
+		return wcschr(monster_group[gid].chars, r_a->d_char)
+			- wcschr(monster_group[gid].chars, r_b->d_char);
 	}
 	c = r_a->level - r_b->level;
 	if (c) return c;
@@ -981,15 +1030,21 @@ static int m_cmp_race(const void *a, const void *b)
 	return strcmp(r_a->name, r_b->name);
 }
 
-static char *m_xchar(int oid) { return &r_info[default_join[oid].oid].x_char; }
+static wchar_t *m_xchar(int oid) { return &r_info[default_join[oid].oid].x_char; }
 static byte *m_xattr(int oid) { return &r_info[default_join[oid].oid].x_attr; }
 static const char *race_name(int gid) { return monster_group[gid].name; }
 
 static void mon_lore(int oid)
 {
+	int r_idx;
+	const monster_race *r_ptr;
+	const monster_lore *l_ptr;
+
+	r_idx = default_join[oid].oid;
+
 	/* Update the monster recall window */
-	monster_race_track(default_join[oid].oid);
-	handle_stuff();
+	monster_race_track(r_idx);
+	handle_stuff(p_ptr);
 
 	/* Save the screen */
 	screen_save();
@@ -998,9 +1053,12 @@ static void mon_lore(int oid)
 	text_out_hook = text_out_to_screen;
 
 	/* Recall monster */
-	roff_top(default_join[oid].oid);
+	assert(r_idx);
+	r_ptr = &r_info[r_idx];
+	l_ptr = &l_list[r_idx];
+	roff_top(r_ptr);
 	Term_gotoxy(0, 2);
-	describe_monster(default_join[oid].oid, FALSE);
+	describe_monster(r_ptr, l_ptr, FALSE);
 
 	text_out_c(TERM_L_BLUE, "\n[Press any key to continue]\n");
 	(void)anykey();
@@ -1054,8 +1112,8 @@ static int count_known_monsters(void)
 
 		for (j = 1; j < N_ELEMENTS(monster_group) - 1; j++)
 		{
-			const char *pat = monster_group[j].chars;
-			if (strchr(pat, r_ptr->d_char)) m_count++;
+			const wchar_t *pat = monster_group[j].chars;
+			if (wcschr(pat, r_ptr->d_char)) m_count++;
 		}
 	}
 
@@ -1087,8 +1145,8 @@ static void do_cmd_knowledge_monsters(const char *name, int row)
 
 		for (j = 1; j < N_ELEMENTS(monster_group) - 1; j++)
 		{
-			const char *pat = monster_group[j].chars;
-			if (strchr(pat, r_ptr->d_char)) m_count++;
+			const wchar_t *pat = monster_group[j].chars;
+			if (wcschr(pat, r_ptr->d_char)) m_count++;
 		}
 	}
 
@@ -1104,10 +1162,10 @@ static void do_cmd_knowledge_monsters(const char *name, int row)
 
 		for (j = 0; j < N_ELEMENTS(monster_group)-1; j++)
 		{
-			const char *pat = monster_group[j].chars;
+			const wchar_t *pat = monster_group[j].chars;
 			if (j == 0 && !rf_has(r_ptr->flags, RF_UNIQUE))
 				continue;
-			else if (j > 0 && !strchr(pat, r_ptr->d_char))
+			else if (j > 0 && !wcschr(pat, r_ptr->d_char))
 				continue;
 
 			monsters[m_count] = m_count;
@@ -1130,7 +1188,7 @@ static void get_artifact_display_name(char *o_name, size_t namelen, int a_idx)
 	object_type object_type_body = { 0 };
 	object_type *o_ptr = &object_type_body;
 
-	make_fake_artifact(o_ptr, a_idx);
+	make_fake_artifact(o_ptr, &a_info[a_idx]);
 	object_desc(o_name, namelen, o_ptr,
 			ODESC_PREFIX | ODESC_BASE | ODESC_SPOIL);
 }
@@ -1148,29 +1206,29 @@ static void display_artifact(int col, int row, bool cursor, int oid)
 	c_prt(attr, o_name, row, col);
 }
 
-static object_type *find_artifact(int a_idx)
+static object_type *find_artifact(struct artifact *artifact)
 {
 	int i, j;
 
 	/* Look for the artifact, either in inventory, store or the object list */
 	for (i = 0; i < z_info->o_max; i++)
 	{
-		if (o_list[i].name1 == a_idx)
-			return &o_list[i];
+		if (object_byid(i)->artifact == artifact)
+			return object_byid(i);
 	}
 
 	for (i = 0; i < INVEN_TOTAL; i++)
 	{
-		if (p_ptr->inventory[i].name1 == a_idx)
+		if (p_ptr->inventory[i].artifact == artifact)
 			return &p_ptr->inventory[i];
 	}
 
 	for (j = 1; j < (FEAT_SHOP_TAIL - FEAT_SHOP_HEAD + 1); j++)
 	{
-		for (i = 0; i < store[j].stock_size; i++)
+		for (i = 0; i < stores[j].stock_size; i++)
 		{
-			if (store[j].stock[i].name1 == a_idx)
-				return &store[j].stock[i];
+			if (stores[j].stock[i].artifact == artifact)
+				return &stores[j].stock[i];
 		}
 	}
 
@@ -1190,26 +1248,24 @@ static void desc_art_fake(int a_idx)
 	textblock *tb;
 	region area = { 0, 0, 0, 0 };
 
-	o_ptr = find_artifact(a_idx);
+	o_ptr = find_artifact(&a_info[a_idx]);
 
 	/* If it's been lost, make a fake artifact for it */
 	if (!o_ptr)
 	{
 		o_ptr = &object_type_body;
 
-		make_fake_artifact(o_ptr, a_idx);
+		make_fake_artifact(o_ptr, &a_info[a_idx]);
 		o_ptr->ident |= IDENT_NAME;
 
 		/* Check the history entry, to see if it was fully known before it
 		 * was lost */
-		if (history_is_artifact_known(a_idx))
-		{
+		if (history_is_artifact_known(o_ptr->artifact))
 			object_notice_everything(o_ptr);
-		}
 	}
 
 	/* Hack -- Handle stuff */
-	handle_stuff();
+	handle_stuff(p_ptr);
 
 	tb = object_info(o_ptr, OINFO_NONE);
 	object_desc(header, sizeof(header), o_ptr, ODESC_PREFIX | ODESC_FULL);
@@ -1258,7 +1314,7 @@ static bool artifact_is_known(int a_idx)
 		return FALSE;
 
 	/* Check all objects to see if it exists but hasn't been IDed */
-	o_ptr = find_artifact(a_idx);
+	o_ptr = find_artifact(&a_info[a_idx]);
 	if (o_ptr && !object_is_known_artifact(o_ptr))
 		return FALSE;
 
@@ -1414,17 +1470,17 @@ static void do_cmd_knowledge_ego_items(const char *name, int row)
  * to be an artifact*.  Behaviour is distinctly unfriendly if passed
  * flavours which don't correspond to an artifact.
  */
-static int get_artifact_from_kind(object_kind *k_ptr)
+static int get_artifact_from_kind(object_kind *kind)
 {
 	int i;
 
-	assert(of_has(k_ptr->flags, OF_INSTA_ART));
+	assert(of_has(kind->flags, OF_INSTA_ART));
 
 	/* Look for the corresponding artifact */
 	for (i = 0; i < z_info->a_max; i++)
 	{
-		if (k_ptr->tval == a_info[i].tval &&
-		    k_ptr->sval == a_info[i].sval)
+		if (kind->tval == a_info[i].tval &&
+		    kind->sval == a_info[i].sval)
 		{
 			break;
 		}
@@ -1439,43 +1495,37 @@ static int get_artifact_from_kind(object_kind *k_ptr)
  */
 static void display_object(int col, int row, bool cursor, int oid)
 {
-	int k_idx = oid;
-
-	object_kind *k_ptr = &k_info[k_idx];
-	const char *inscrip = get_autoinscription(oid);
+	object_kind *kind = &k_info[oid];
+	const char *inscrip = get_autoinscription(kind);
 
 	char o_name[80];
 
 	/* Choose a color */
-	bool aware = (!k_ptr->flavor || k_ptr->aware);
+	bool aware = (!kind->flavor || kind->aware);
 	byte attr = curs_attrs[(int)aware][(int)cursor];
 
 	/* Find graphics bits -- versions of the object_char and object_attr defines */
-	bool use_flavour = (k_ptr->flavor) && !(aware && k_ptr->tval == TV_SCROLL);
+	bool use_flavour = (kind->flavor) && !(aware && kind->tval == TV_SCROLL);
 
-	byte a = use_flavour ? k_ptr->flavor->x_attr : k_ptr->x_attr;
-	byte c = use_flavour ? k_ptr->flavor->x_char : k_ptr->x_char;
+	byte a = use_flavour ? kind->flavor->x_attr : kind->x_attr;
+	wchar_t c = use_flavour ? kind->flavor->x_char : kind->x_char;
 
 	/* Display known artifacts differently */
-	if (of_has(k_ptr->flags, OF_INSTA_ART) && artifact_is_known(get_artifact_from_kind(k_ptr)))
-	{
-		get_artifact_display_name(o_name, sizeof(o_name), get_artifact_from_kind(k_ptr));
-	}
+	if (of_has(kind->flags, OF_INSTA_ART) && artifact_is_known(get_artifact_from_kind(kind)))
+		get_artifact_display_name(o_name, sizeof(o_name), get_artifact_from_kind(kind));
 	else
-	{
- 		object_kind_name(o_name, sizeof(o_name), k_idx, OPT(cheat_know));
-	}
+ 		object_kind_name(o_name, sizeof(o_name), kind, OPT(cheat_xtra));
 
 	/* If the type is "tried", display that */
-	if (k_ptr->tried && !aware)
+	if (kind->tried && !aware)
 		my_strcat(o_name, " {tried}", sizeof(o_name));
 
 	/* Display the name */
 	c_prt(attr, o_name, row, col);
 
 	/* Show squelch status */
-	if ((aware && kind_is_squelched_aware(k_ptr)) ||
-		(!aware && kind_is_squelched_unaware(k_ptr)))
+	if ((aware && kind_is_squelched_aware(kind)) ||
+		(!aware && kind_is_squelched_unaware(kind)))
 		c_put_str(attr, "Yes", row, 46);
 
 
@@ -1483,12 +1533,9 @@ static void display_object(int col, int row, bool cursor, int oid)
 	if (aware && inscrip)
 		c_put_str(TERM_YELLOW, inscrip, row, 55);
 
-	/* Hack - don't use if double tile */
-	if ((tile_width > 1) || (tile_height > 1))
-		return;
-
-	/* Display symbol */
-	big_pad(76, row, a, c);
+	if (tile_height == 1) {
+		big_pad(76, row, a, c);
+	}
 }
 
 /*
@@ -1496,7 +1543,7 @@ static void display_object(int col, int row, bool cursor, int oid)
  */
 static void desc_obj_fake(int k_idx)
 {
-	object_kind *k_ptr = &k_info[k_idx];
+	object_kind *kind = &k_info[k_idx];
 	object_type object_type_body;
 	object_type *o_ptr = &object_type_body;
 
@@ -1506,30 +1553,30 @@ static void desc_obj_fake(int k_idx)
 	region area = { 0, 0, 0, 0 };
 
 	/* Check for known artifacts, display them as artifacts */
-	if (of_has(k_ptr->flags, OF_INSTA_ART) && artifact_is_known(get_artifact_from_kind(k_ptr)))
+	if (of_has(kind->flags, OF_INSTA_ART) && artifact_is_known(get_artifact_from_kind(kind)))
 	{
-		desc_art_fake(get_artifact_from_kind(k_ptr));
+		desc_art_fake(get_artifact_from_kind(kind));
 		return;
 	}
 
 	/* Update the object recall window */
 	track_object_kind(k_idx);
-	handle_stuff();
+	handle_stuff(p_ptr);
 
 	/* Wipe the object */
 	object_wipe(o_ptr);
 
 	/* Create the artifact */
-	object_prep(o_ptr, k_ptr, 0, EXTREMIFY);
+	object_prep(o_ptr, kind, 0, EXTREMIFY);
 
 	/* Hack -- its in the store */
-	if (k_info[k_idx].aware) o_ptr->ident |= (IDENT_STORE);
+	if (kind->aware) o_ptr->ident |= (IDENT_STORE);
 
 	/* It's fully know */
-	if (!k_info[k_idx].flavor) object_notice_everything(o_ptr);
+	if (!kind->flavor) object_notice_everything(o_ptr);
 
 	/* Hack -- Handle stuff */
-	handle_stuff();
+	handle_stuff(p_ptr);
 
 	tb = object_info(o_ptr, OINFO_NONE);
 	object_desc(header, sizeof(header), o_ptr, ODESC_PREFIX | ODESC_FULL);
@@ -1578,24 +1625,24 @@ static int o_cmp_tval(const void *a, const void *b)
 
 static int obj2gid(int oid) { return obj_group_order[k_info[oid].tval]; }
 
-static char *o_xchar(int oid)
+static wchar_t *o_xchar(int oid)
 {
-	object_kind *k_ptr = &k_info[oid];
+	object_kind *kind = objkind_byid(oid);
 
-	if (!k_ptr->flavor || k_ptr->aware)
-		return &k_ptr->x_char;
+	if (!kind->flavor || kind->aware)
+		return &kind->x_char;
 	else
-		return &k_ptr->flavor->x_char;
+		return &kind->flavor->x_char;
 }
 
 static byte *o_xattr(int oid)
 {
-	object_kind *k_ptr = &k_info[oid];
+	object_kind *kind = objkind_byid(oid);
 
-	if (!k_ptr->flavor || k_ptr->aware)
-		return &k_ptr->x_attr;
+	if (!kind->flavor || kind->aware)
+		return &kind->x_attr;
 	else
-		return &k_ptr->flavor->x_attr;
+		return &kind->flavor->x_attr;
 }
 
 /*
@@ -1618,12 +1665,12 @@ static const char *o_xtra_prompt(int oid)
 /*
  * Special key actions for object inscription.
  */
-static void o_xtra_act(char ch, int oid)
+static void o_xtra_act(struct keypress ch, int oid)
 {
 	object_kind *k = objkind_byid(oid);
 
 	/* Toggle squelch */
-	if (squelch_tval(k->tval) && (ch == 's' || ch == 'S'))
+	if (squelch_tval(k->tval) && (ch.code == 's' || ch.code == 'S'))
 	{
 		if (k->aware)
 		{
@@ -1648,10 +1695,10 @@ static void o_xtra_act(char ch, int oid)
 		return;
 
 	/* Uninscribe */
-	if (ch == '}') {
+	if (ch.code == '}') {
 		if (k->note)
 			remove_autoinscription(oid);
-	} else if (ch == '{') {
+	} else if (ch.code == '{') {
 		/* Inscribe */
 		char note_text[80] = "";
 
@@ -1663,7 +1710,7 @@ static void o_xtra_act(char ch, int oid)
 
 		/* Default note */
 		if (k->note)
-			strnfmt(note_text, sizeof(note_text), "%s", get_autoinscription(oid));
+			strnfmt(note_text, sizeof(note_text), "%s", get_autoinscription(k));
 
 		/* Get an inscription */
 		if (askfor_aux(note_text, sizeof(note_text), NULL))
@@ -1698,21 +1745,21 @@ void textui_browse_object_knowledge(const char *name, int row)
 	int *objects;
 	int o_count = 0;
 	int i;
-	object_kind *k_ptr;
+	object_kind *kind;
 
 	objects = C_ZNEW(z_info->k_max, int);
 
 	for (i = 0; i < z_info->k_max; i++)
 	{
-		k_ptr = &k_info[i];
+		kind = &k_info[i];
 		/* It's in the list if we've ever seen it, or it has a flavour,
 		 * and either it's not one of the special artifacts, or if it is,
 		 * we're not aware of it yet. This way the flavour appears in the list
 		 * until it is found.
 		 */
-		if ((k_ptr->everseen || k_ptr->flavor || OPT(cheat_xtra)) &&
-				(!of_has(k_ptr->flags, OF_INSTA_ART) ||
-				 !artifact_is_known(get_artifact_from_kind(k_ptr))))
+		if ((kind->everseen || kind->flavor || OPT(cheat_xtra)) &&
+				(!of_has(kind->flags, OF_INSTA_ART) ||
+				 !artifact_is_known(get_artifact_from_kind(kind))))
 		{
 			int c = obj_group_order[k_info[i].tval];
 			if (c >= 0) objects[o_count++] = i;
@@ -1732,25 +1779,21 @@ void textui_browse_object_knowledge(const char *name, int row)
  */
 static void display_feature(int col, int row, bool cursor, int oid )
 {
-	/* Get the feature index */
-	int f_idx = oid;
-
-	/* Access the feature */
-	feature_type *f_ptr = &f_info[f_idx];
-
-	/* Choose a color */
+	feature_type *f_ptr = &f_info[oid];
 	byte attr = curs_attrs[CURS_KNOWN][(int)cursor];
 
-	/* Display the name */
 	c_prt(attr, f_ptr->name, row, col);
 
-	if ((tile_width > 1) || (tile_height > 1)) return;
-
-	/* Display symbol */
-	big_pad(68, row, f_ptr->x_attr, f_ptr->x_char);
-
-	/* ILLUMINATION AND DARKNESS GO HERE */
-
+	if (tile_height == 1) {
+		/* Display symbols */
+		col = 66;
+		col += big_pad(col, row, f_ptr->x_attr[FEAT_LIGHTING_DARK],
+				f_ptr->x_char[FEAT_LIGHTING_DARK]);
+		col += big_pad(col, row, f_ptr->x_attr[FEAT_LIGHTING_LIT],
+				f_ptr->x_char[FEAT_LIGHTING_LIT]);
+		col += big_pad(col, row, f_ptr->x_attr[FEAT_LIGHTING_BRIGHT],
+				f_ptr->x_char[FEAT_LIGHTING_BRIGHT]);
+	}
 }
 
 
@@ -1768,9 +1811,40 @@ static int f_cmp_fkind(const void *a, const void *b)
 }
 
 static const char *fkind_name(int gid) { return feature_group_text[gid]; }
-static byte *f_xattr(int oid) { return &f_info[oid].x_attr; }
-static char *f_xchar(int oid) { return &f_info[oid].x_char; }
+/* Disgusting hack to allow 3 in 1 editting of terrain visuals */
+static enum grid_light_level f_uik_lighting = FEAT_LIGHTING_LIT;
+/* XXX needs *better* retooling for multi-light terrain */
+static byte *f_xattr(int oid) { return &f_info[oid].x_attr[f_uik_lighting]; }
+static wchar_t *f_xchar(int oid) { return &f_info[oid].x_char[f_uik_lighting]; }
 static void feat_lore(int oid) { (void)oid; /* noop */ }
+static const char *feat_prompt(int oid)
+{
+	(void)oid;
+	return ", 'l' to cycle lighting";
+}
+
+/*
+ * Special key actions for cycling lighting
+ */
+static void f_xtra_act(struct keypress ch, int oid)
+{
+	/* XXX must be a better way to cycle this */
+	if (ch.code == 'l') {
+		switch (f_uik_lighting) {
+				case FEAT_LIGHTING_LIT:  f_uik_lighting = FEAT_LIGHTING_BRIGHT; break;
+				case FEAT_LIGHTING_BRIGHT:  f_uik_lighting = FEAT_LIGHTING_DARK; break;
+				default:	f_uik_lighting = FEAT_LIGHTING_LIT; break;
+		}		
+	} else if (ch.code == 'L') {
+		switch (f_uik_lighting) {
+				case FEAT_LIGHTING_DARK:  f_uik_lighting = FEAT_LIGHTING_BRIGHT; break;
+				case FEAT_LIGHTING_LIT:  f_uik_lighting = FEAT_LIGHTING_DARK; break;
+				default:	f_uik_lighting = FEAT_LIGHTING_LIT; break;
+		}
+	}
+	
+}
+
 
 /*
  * Interact with feature visuals.
@@ -1780,7 +1854,7 @@ static void do_cmd_knowledge_features(const char *name, int row)
 	group_funcs fkind_f = {N_ELEMENTS(feature_group_text), FALSE,
 							fkind_name, f_cmp_fkind, feat_order, 0};
 
-	member_funcs feat_f = {display_feature, feat_lore, f_xchar, f_xattr, 0, 0, 0};
+	member_funcs feat_f = {display_feature, feat_lore, f_xchar, f_xattr, feat_prompt, f_xtra_act, 0};
 
 	int *features;
 	int f_count = 0;
@@ -1926,7 +2000,7 @@ void textui_browse_knowledge(void)
 	menu_layout(&knowledge_menu, &knowledge_region);
 
 	clear_from(0);
-	menu_select(&knowledge_menu, 0);
+	menu_select(&knowledge_menu, 0, FALSE);
 
 	screen_load();
 }
