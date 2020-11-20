@@ -1,0 +1,161 @@
+target_sources(
+  Angband
+  PUBLIC buildid.c
+         cave-map.c
+         cave-square.c
+         cave-view.c
+         cave.c
+         cmd-cave.c
+         cmd-core.c
+         cmd-misc.c
+         cmd-obj.c
+         cmd-pickup.c
+         datafile.c
+         debug.c
+         effects.c
+         effects-info.c
+         game-event.c
+         game-input.c
+         game-world.c
+         gen-cave.c
+         gen-chunk.c
+         gen-monster.c
+         gen-room.c
+         gen-util.c
+         generate.c
+         grafmode.c
+         guid.c
+         init.c
+         load.c
+         main.c
+         message.c
+         mon-attack.c
+         mon-blows.c
+         mon-desc.c
+         mon-group.c
+         mon-init.c
+         mon-list.c
+         mon-lore.c
+         mon-make.c
+         mon-move.c
+         mon-msg.c
+         mon-predicate.c
+         mon-spell.c
+         mon-summon.c
+         mon-timed.c
+         mon-util.c
+         obj-chest.c
+         obj-curse.c
+         obj-desc.c
+         obj-gear.c
+         obj-ignore.c
+         obj-info.c
+         obj-init.c
+         obj-knowledge.c
+         obj-list.c
+         obj-make.c
+         obj-pile.c
+         obj-power.c
+         obj-properties.c
+         obj-randart.c
+         obj-slays.c
+         obj-tval.c
+         obj-util.c
+         option.c
+         parser.c
+         player-attack.c
+         player-birth.c
+         player-calcs.c
+         player-class.c
+         player-history.c
+         player-path.c
+         player-properties.c
+         player-quest.c
+         player-race.c
+         player-spell.c
+         player-timed.c
+         player-util.c
+         player.c
+         project-feat.c
+         project-mon.c
+         project-obj.c
+         project-player.c
+         project.c
+         randname.c
+         save.c
+         save-charoutput.c
+         savefile.c
+         score.c
+         sound-core.c
+         source.c
+         store.c
+         target.c
+         trap.c
+         ui-birth.c
+         ui-command.c
+         ui-context.c
+         ui-curse.c
+         ui-death.c
+         ui-display.c
+         ui-entry-combiner.c
+         ui-entry-renderers.c
+         ui-entry.c
+         ui-equip-cmp.c
+         ui-event.c
+         ui-game.c
+         ui-help.c
+         ui-history.c
+         ui-init.c
+         ui-input.c
+         ui-keymap.c
+         ui-knowledge.c
+         ui-map.c
+         ui-menu.c
+         ui-mon-list.c
+         ui-mon-lore.c
+         ui-obj-list.c
+         ui-object.c
+         ui-options.c
+         ui-output.c
+         ui-player.c
+         ui-prefs.c
+         ui-score.c
+         ui-signals.c
+         ui-spell.c
+         ui-store.c
+         ui-target.c
+         ui-term.c
+         ui-visuals.c
+         wiz-debug.c
+         wiz-spoil.c
+         wiz-stats.c
+         z-bitflag.c
+         z-color.c
+         z-dice.c
+         z-expression.c
+         z-file.c
+         z-form.c
+         z-quark.c
+         z-queue.c
+         z-rand.c
+         z-set.c
+         z-textblock.c
+         z-type.c
+         z-util.c
+         z-virt.c)
+
+if(SUPPORT_NCURSES_FRONTEND)
+  target_sources(Angband PRIVATE main-gcu.c)
+elseif(SUPPORT_SDL_FRONTEND)
+  target_sources(Angband PRIVATE main-sdl.c)
+  if(SUPPORT_SDL_SOUND)
+    target_sources(Angband PRIVATE snd-sdl.c)
+  endif()
+elseif(SUPPORT_X11_FRONTEND)
+  target_sources(Angband PRIVATE main-x11.c)
+endif()
+
+# main-cocoa.m $<$<BOOL:${SUPPORT_NCURSES_FRONTEND}>:main-gcu.c> main-nds.c
+# $<$<BOOL:${SUPPORT_SDL_FRONTEND}>:main-sdl.c> main-sdl2.c main-stats.c
+# main-test.c main-win.c $<$<BOOL:${SUPPORT_X11_FRONTEND}>:main-x11.c>
+# main-xxx.c
